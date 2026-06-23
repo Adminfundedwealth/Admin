@@ -169,7 +169,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Rate limiting
-  const rateResult = checkRateLimit(user.id, request.method);
+  const rateResult = checkRateLimit(user!.id, request.method);
   if (!rateResult.allowed) {
     const errorResponse = NextResponse.json(
       {
@@ -201,13 +201,14 @@ export async function middleware(request: NextRequest) {
           )
         )
       `)
-      .eq('staff_id', user.id);
+      .eq('staff_id', user!.id);
 
     let hasPermission = false;
 
-    if (permData) {
-      for (const assignment of permData) {
-        const role = assignment.roles as unknown as { name: string; role_permissions: { permission: string }[] };
+    const roleAssignments = permData ?? [];
+    for (let i = 0; i < roleAssignments.length; i++) {
+      const assignment = roleAssignments[i];
+      const role = assignment.roles as unknown as { name: string; role_permissions: { permission: string }[] };
         // Founder/Co-Founder bypass
         if (role.name === 'Founder' || role.name === 'Co-Founder') {
           hasPermission = true;
@@ -219,7 +220,6 @@ export async function middleware(request: NextRequest) {
           break;
         }
       }
-    }
 
     if (!hasPermission) {
       if (pathname.startsWith('/api/')) {

@@ -4,6 +4,8 @@
 
 FundedWealth Admin OS is an enterprise-grade internal operating system for running the entire FundedWealth prop trading firm. Accessible at admin.fundedwealth.com, the system provides 18 specialized operating centers covering executive oversight, user management, challenge operations, funded trader management, payouts, KYC, risk management, trade surveillance, order monitoring, affiliates, revenue intelligence, support, marketing, certificates, system monitoring, audit/compliance, staff management, and configuration. The platform is built with Next.js, TypeScript, Tailwind CSS, shadcn/ui, and Supabase, featuring enterprise RBAC with granular permissions, comprehensive audit logging, and security-first architecture.
 
+This document also specifies the UI/UX transformation layer that converts the Admin OS from a generic SaaS dashboard into an enterprise operations center. The transformation is purely visual, interaction-based, and information-density focused — no new modules, business features, database changes, RBAC changes, or workflow changes are introduced. Every screen prioritizes speed, visibility, information density, operational awareness, and executive decision-making.
+
 ## Glossary
 
 - **Admin_OS**: The FundedWealth Admin Operating System hosted at admin.fundedwealth.com
@@ -38,6 +40,15 @@ FundedWealth Admin OS is an enterprise-grade internal operating system for runni
 - **KYC_Document**: An identity verification document submitted by a trader
 - **Commission**: A payment owed to an affiliate for a referred user's purchase
 - **Session**: An authenticated Staff_Member login instance with device and location metadata
+- **Design_System**: The unified set of design tokens, component styles, typography, spacing, and color scales used across all operating centers
+- **Operations_Feed**: The persistent real-time activity stream showing live company events
+- **Queue_Card**: A compact visual widget displaying a pending operational queue with count, age, priority, and status
+- **Slide_Over_Panel**: A right-side contextual detail drawer that overlays content without full page navigation
+- **Staff_Presence_Indicator**: A visual element showing online status, current module, and last activity of a Staff_Member
+- **Status_Badge**: A standardized visual indicator using consistent color coding and labels across all operating centers
+- **Density_Control**: A UI toggle allowing Staff_Members to switch between compact, default, and comfortable row spacing in tables
+- **Mission_Control_Layout**: The three-panel page structure with left navigation, center operations content, and right live activity feed
+- **Operations_Copilot**: The AI-powered operations assistant that provides natural-language access to business data, entity navigation, and report generation within a native slide-over panel
 
 ## Requirements
 
@@ -390,3 +401,195 @@ FundedWealth Admin OS is an enterprise-grade internal operating system for runni
 5. WHEN a data-dependent view initiates a data request that exceeds 300 milliseconds without a response, THE Admin_OS SHALL display a loading indicator until data is received or an error occurs
 6. IF a data request fails for a data-dependent view, THEN THE Admin_OS SHALL display an error state indicating the nature of the failure and providing a retry action
 7. WHEN a data-dependent view receives a successful response containing no records, THE Admin_OS SHALL display an empty state with a descriptive message indicating no data is available
+
+---
+
+## UI/UX Operations Center Transformation
+
+> The following requirements define the visual, interaction, and information-density transformation of the existing Admin OS. These requirements do NOT introduce new modules, new business features, new database tables, RBAC changes, or workflow changes. They exclusively govern how existing data and functionality is presented, organized, and interacted with.
+
+### Requirement 26: Global Design System — Premium Fintech Aesthetic
+
+**User Story:** As a Founder, I want the Admin OS to have a premium fintech aesthetic inspired by Stripe, Linear, Vercel, and Supabase Studio, so that the system feels like a professional operations center rather than a generic SaaS template.
+
+#### Acceptance Criteria
+
+1. THE Design_System SHALL define a design token layer consisting of: a color scale with semantic aliases (background, surface, border, text-primary, text-secondary, text-muted, accent, success, warning, critical, info), a spacing scale (4px base unit with 8 steps: 4, 8, 12, 16, 20, 24, 32, 48 pixels), a typography scale (6 levels: display, heading, subheading, body, caption, mono), and an elevation scale (3 levels: flat, raised, overlay)
+2. THE Design_System SHALL enforce a professional dark mode as the default theme using a neutral dark palette with background colors between HSL lightness 5-12%, surface colors between HSL lightness 10-16%, and border colors between HSL lightness 16-22%, with accent color used sparingly for interactive elements and active states only
+3. THE Design_System SHALL eliminate all padding exceeding 24 pixels between adjacent content sections, restrict card padding to a maximum of 16 pixels, and restrict page-level horizontal padding to a maximum of 24 pixels on viewport widths of 1440 pixels or wider
+4. THE Design_System SHALL implement a typography hierarchy where: display text uses font-weight 600 at 24-28px, headings use font-weight 600 at 18-20px, subheadings use font-weight 500 at 14-16px, body text uses font-weight 400 at 13-14px, captions use font-weight 400 at 11-12px, and monospace text uses a dedicated monospace font at 12-13px
+5. THE Design_System SHALL render all data tables using a compact row height between 36-44 pixels with 1px border separating rows, monospace font for numerical values, and right-aligned numeric columns
+6. THE Design_System SHALL render all status indicators using the Status_Badge component with consistent color mapping: green for success/active/healthy, amber for warning/pending/degraded, red for critical/failed/breached, blue for info/in-progress/review, and gray for neutral/paused/offline
+7. IF a component or page uses hardcoded color values, spacing values, or font sizes instead of design tokens, THEN THE Design_System SHALL flag the violation during build time via a linting rule
+
+### Requirement 27: Mission Control Layout — Three-Panel Architecture
+
+**User Story:** As a Founder, I want the dashboard to use a three-panel Mission Control layout, so that I can see navigation, operations data, and live activity simultaneously without switching contexts.
+
+#### Acceptance Criteria
+
+1. THE Admin_OS SHALL implement the Mission_Control_Layout with three persistent regions: a left navigation panel (width 240-260 pixels, collapsible to 64 pixels), a center content area (fluid width, minimum 800 pixels), and a right Operations_Feed panel (width 320-360 pixels, collapsible)
+2. WHEN a Staff_Member navigates to the Executive_Command_Center, THE Admin_OS SHALL display the Mission_Control_Layout with all three panels visible by default, where the right panel shows the Operations_Feed
+3. WHILE the Mission_Control_Layout is active, THE left navigation panel SHALL remain fixed and visible during vertical scrolling of the center content area
+4. WHEN a Staff_Member collapses the right Operations_Feed panel, THE Admin_OS SHALL expand the center content area to fill the available width and persist the collapsed state for the duration of the session
+5. WHEN a Staff_Member collapses the left navigation panel, THE Admin_OS SHALL display only icon-based navigation items at 64 pixels width and expand the center content area accordingly
+6. THE Mission_Control_Layout SHALL allocate zero horizontal space to decorative elements, empty gutters wider than 16 pixels, or non-functional whitespace between the three panels
+7. WHILE a Staff_Member is on any page other than the Executive_Command_Center, THE Admin_OS SHALL display the left navigation panel and center content area, with the right Operations_Feed available as a toggleable overlay triggered by a persistent icon button in the top navigation bar
+
+### Requirement 28: Live Operations Feed — Real-Time Activity Stream
+
+**User Story:** As a Founder, I want a persistent real-time operations feed showing all company activity, so that I always know what is happening across the business without switching views.
+
+#### Acceptance Criteria
+
+1. THE Operations_Feed SHALL display a chronological stream of live company events including: user registrations, challenge purchases, challenge pass/fail outcomes, payout requests submitted, KYC submissions received, KYC approvals and rejections, support ticket creation, risk alert generation, and staff login/logout events
+2. WHEN a new event occurs in any operating center, THE Operations_Feed SHALL prepend the event to the stream within 5 seconds of occurrence, displaying: event type icon, event description (maximum 80 characters), actor or subject name, timestamp formatted as relative time (e.g., "2m ago"), and a severity or category color indicator
+3. THE Operations_Feed SHALL display the 50 most recent events and support infinite scrolling to load older events in batches of 25
+4. WHEN a Staff_Member clicks on an event in the Operations_Feed, THE Admin_OS SHALL navigate to the relevant entity detail (user profile, payout request, KYC submission, risk alert, or ticket) using either inline navigation or a Slide_Over_Panel without requiring a full page reload
+5. THE Operations_Feed SHALL support filtering by event category (registrations, purchases, payouts, KYC, risk, support, staff) using toggle chips at the top of the feed, with all categories enabled by default
+6. WHILE the Operations_Feed is visible, THE Admin_OS SHALL display a connection status dot (green for connected, red for disconnected) at the top of the feed panel
+7. IF the real-time connection to the Operations_Feed is lost, THEN THE Admin_OS SHALL display a "Reconnecting..." indicator and automatically attempt reconnection every 5 seconds until successful, then backfill any missed events
+
+### Requirement 29: Operational Queue Visualization
+
+**User Story:** As a Founder, I want to see all pending operational queues (payouts, KYC, tickets, risk alerts) as visual queue cards with counts and age, so that I can immediately assess operational backlog health.
+
+#### Acceptance Criteria
+
+1. THE Executive_Command_Center SHALL display Queue_Card widgets for each operational queue: Pending Payouts, Pending KYC Reviews, Open Support Tickets, and Active Risk Alerts
+2. EACH Queue_Card SHALL display: queue name, current item count, oldest item age (formatted as hours or days), average wait time, and a priority breakdown showing the count of items at each priority level (critical, high, medium, low)
+3. WHEN a Queue_Card item count exceeds a configured warning threshold, THE Queue_Card SHALL display an amber visual indicator; WHEN the count exceeds a configured critical threshold, THE Queue_Card SHALL display a red visual indicator
+4. WHEN a Staff_Member clicks on a Queue_Card, THE Admin_OS SHALL navigate to the corresponding operating center's pending queue view with filters pre-applied to show only pending or open items
+5. THE Queue_Card counts SHALL update in real-time within 10 seconds of any queue state change (item added, item resolved, item escalated)
+6. THE Executive_Command_Center SHALL arrange Queue_Cards in a horizontal row at a prominent position above or beside the main KPI section, using a maximum height of 120 pixels per card
+
+### Requirement 30: Staff Presence and Activity Awareness
+
+**User Story:** As a Founder, I want to see which staff members are currently online, what module they are viewing, and when they were last active, so that I know who is working and where.
+
+#### Acceptance Criteria
+
+1. THE Admin_OS SHALL display Staff_Presence_Indicators for each Staff_Member showing: online status (online, idle after 5 minutes of inactivity, offline after session expiry or logout), avatar or initials, name, current module being viewed, and time since last activity
+2. WHEN a Staff_Member navigates between operating centers, THE Admin_OS SHALL update the Staff_Presence_Indicator's current module within 3 seconds of navigation
+3. THE Executive_Command_Center SHALL display a Staff Presence section showing all currently online and idle Staff_Members, sorted by online status (online first, then idle) and then by last activity time (most recent first)
+4. WHEN a Staff_Member's status transitions from online to idle or from idle to offline, THE Admin_OS SHALL update the Staff_Presence_Indicator within 10 seconds of the transition
+5. THE Staff Presence section SHALL display a compact summary header showing: total online count, total idle count, and total offline count
+6. WHILE the Founder is viewing the Executive_Command_Center, THE Staff Presence section SHALL occupy a maximum vertical height of 200 pixels and support internal scrolling if more than 8 Staff_Members are displayed
+
+### Requirement 31: Risk Visualization — Institutional Grade
+
+**User Story:** As a Risk Manager, I want risk data presented with institutional-grade visualization including heatmaps, severity color coding, and risk scoring indicators, so that risk assessment is immediate and visual.
+
+#### Acceptance Criteria
+
+1. THE Risk_Management_Center SHALL display a risk heatmap visualization showing risk concentration by account segment (account size tier on one axis, drawdown usage percentage on the other axis), where cell color intensity maps to the count of accounts in that segment using a gradient from green (0 accounts at risk) through amber (1-5 accounts) to red (6 or more accounts)
+2. THE Risk_Management_Center SHALL display each risk alert with a severity color bar on the left edge of the alert row: green for low, amber for medium, orange for high, and red for critical, occupying the full height of the row and 4 pixels width
+3. THE Risk_Management_Center SHALL display a risk score indicator for each account ranging from 0 (no risk) to 100 (maximum risk), rendered as a compact circular progress indicator with color fill matching severity thresholds: 0-25 green, 26-50 amber, 51-75 orange, 76-100 red
+4. WHEN a breach event occurs, THE Risk_Management_Center SHALL animate the affected alert row with a brief pulse highlight (200ms duration) to draw immediate visual attention
+5. THE Risk_Management_Center SHALL display capital exposure as a prominent metric bar showing: total capital at risk, total capital deployed, and exposure ratio as a percentage, using color coding where green indicates ratio below 5%, amber indicates 5-15%, and red indicates above 15%
+6. THE Risk_Management_Center SHALL display breach indicators using a distinctive icon and red text label adjacent to any account row or metric where an active breach condition exists
+
+### Requirement 32: Executive Analytics — Delta-Driven KPI Display
+
+**User Story:** As a Founder, I want KPI metrics displayed with revenue deltas, growth percentages, and trend indicators comparing current values to previous periods, so that I can immediately assess business trajectory.
+
+#### Acceptance Criteria
+
+1. THE Executive_Command_Center SHALL display each KPI metric with: the current value (prominently sized using display typography), a delta indicator showing the absolute change from the comparison period, a percentage change from the comparison period, and a trend arrow (up-arrow for positive change, down-arrow for negative change, neutral dash for less than 1% change)
+2. THE Executive_Command_Center SHALL color-code delta indicators where: green indicates positive revenue growth or reduction in negative metrics (fewer open tickets, fewer pending items), red indicates negative revenue decline or increase in negative metrics, and gray indicates less than 1% change
+3. THE Executive_Command_Center SHALL default comparison period to "vs. yesterday" for daily metrics and "vs. previous week" for weekly metrics, with a selector allowing comparison to: previous day, previous week, previous month, and same day last month
+4. WHEN a Staff_Member changes the comparison period selector, THE Executive_Command_Center SHALL recalculate all deltas and trend indicators within 3 seconds
+5. THE Executive_Command_Center SHALL display a compact sparkline chart (maximum 60 pixels height, 120 pixels width) alongside each KPI showing the metric's trend over the last 7 data points for the selected comparison granularity
+6. THE Executive_Command_Center SHALL display revenue KPI with currency formatting matching the business locale (₹ symbol, Indian number formatting with lakhs/crores or standard thousands depending on Configuration_Engine setting)
+
+### Requirement 33: Enterprise Table Experience
+
+**User Story:** As a Staff_Member, I want data tables that support sticky headers, row hover actions, quick actions, advanced filters, saved filters, column visibility controls, and density controls, so that I can work with large datasets efficiently without losing context.
+
+#### Acceptance Criteria
+
+1. THE Admin_OS SHALL implement all data tables with sticky column headers that remain visible during vertical scrolling, ensuring the header row stays fixed at the top of the scrollable area
+2. WHEN a Staff_Member hovers over a table row, THE Admin_OS SHALL display an inline action menu at the right edge of the row showing the 2-3 most common quick actions for that entity type (e.g., View, Edit, Approve), without requiring row selection or navigation to a separate page
+3. THE Admin_OS SHALL provide a Density_Control toggle on every data table allowing Staff_Members to switch between: compact (36px row height), default (44px row height), and comfortable (52px row height), persisting the preference per table across sessions
+4. THE Admin_OS SHALL provide column visibility controls on every data table allowing Staff_Members to show or hide individual columns, persisting the configuration per table across sessions, with a minimum of 3 columns always visible
+5. THE Admin_OS SHALL support saved filter configurations per data table, where a Staff_Member can save the current combination of filters, sort order, and column visibility as a named preset (maximum 10 presets per table), recall any saved preset with a single click, and delete presets
+6. WHEN a Staff_Member applies filters to a data table, THE Admin_OS SHALL display active filter tags above the table showing each applied filter with a remove button, and a "Clear all" action to reset all filters simultaneously
+7. THE Admin_OS SHALL display a record count indicator above each data table showing "Showing X of Y total records" reflecting the current filter state
+8. WHEN a Staff_Member right-clicks on a table row, THE Admin_OS SHALL display a context menu with all available actions for that entity type, matching the actions available in the entity's detail view
+
+### Requirement 34: Slide-Over Panel Experience — Contextual Inspection
+
+**User Story:** As a Staff_Member, I want to inspect entity details in a right-side slide-over panel without losing my current list context, so that I can quickly review and act on items without full page navigation.
+
+#### Acceptance Criteria
+
+1. WHEN a Staff_Member clicks on an entity row in any data table (user, challenge, payout, KYC submission, risk alert, ticket, order, affiliate), THE Admin_OS SHALL open a Slide_Over_Panel on the right side displaying the entity summary and quick actions, while keeping the underlying table visible and scrollable on the left
+2. THE Slide_Over_Panel SHALL occupy 40-50% of the viewport width (minimum 480 pixels, maximum 720 pixels), animate in from the right edge over 200ms, and overlay the right portion of the center content area
+3. THE Slide_Over_Panel SHALL display: entity title, status badge, key metadata fields (contextual to entity type), a timeline of recent events (last 10), and action buttons relevant to the entity's current state
+4. WHEN a Staff_Member performs an action from within the Slide_Over_Panel (approve, reject, escalate), THE Admin_OS SHALL execute the action, update the panel content to reflect the new state, and update the corresponding row in the underlying table without closing the panel
+5. WHEN a Staff_Member clicks outside the Slide_Over_Panel or presses the Escape key, THE Admin_OS SHALL close the panel with a 200ms slide-out animation and restore full width to the center content area
+6. WHEN a Staff_Member presses the up-arrow or down-arrow key while the Slide_Over_Panel is open, THE Admin_OS SHALL navigate to the previous or next entity in the underlying table and update the panel content accordingly without closing and reopening
+7. THE Slide_Over_Panel SHALL include a "Open Full View" link that navigates to the entity's full detail page for cases requiring deeper investigation
+
+### Requirement 35: Founder Command Center — One-Screen Business Health
+
+**User Story:** As a Founder, I want a single screen that shows business health, revenue health, operational health, staff activity, queue health, risk health, and system health simultaneously, so that I can assess the entire company state in one glance.
+
+#### Acceptance Criteria
+
+1. THE Executive_Command_Center SHALL organize its content into distinct visual sections on a single scrollable page: Revenue Health (top row), Operational Queues (second row), Risk Health (third row), Staff Presence (sidebar or inline section), and System Health (bottom section)
+2. THE Revenue Health section SHALL display: revenue today with delta vs yesterday, revenue MTD with delta vs previous month, active traders count with delta, and active funded accounts count with delta, all within a single horizontal row using a maximum height of 100 pixels
+3. THE Operational Queues section SHALL display Queue_Cards for: pending payouts, pending KYC, open tickets, and risk alerts, arranged horizontally with equal width distribution
+4. THE Risk Health section SHALL display: total accounts at risk, highest severity active alert, capital exposure ratio, and breach count today, using the same compact KPI card format as Revenue Health
+5. THE System Health section SHALL display a compact service status row showing each monitored service as a colored dot (green, amber, red) with service name, fitting all services in a single row with a maximum height of 48 pixels
+6. THE Executive_Command_Center SHALL render the complete one-screen view within 3 seconds of navigation, loading KPI data progressively (skeleton loading for each section) rather than blocking the entire page on a single data request
+7. WHILE the Executive_Command_Center is displayed, THE Admin_OS SHALL refresh all visible KPI values, queue counts, and status indicators every 30 seconds without full page reload or visible loading interruption
+
+### Requirement 36: Unified Visual Status System
+
+**User Story:** As a Staff_Member, I want a consistent visual status language used across every operating center, so that I can instantly interpret status at a glance regardless of which module I am viewing.
+
+#### Acceptance Criteria
+
+1. THE Admin_OS SHALL implement a unified Status_Badge component used across all operating centers with the following status-to-color mappings: "active" and "healthy" and "approved" and "completed" and "online" map to green; "pending" and "under review" and "in-progress" and "idle" map to blue; "warning" and "degraded" and "at risk" map to amber; "critical" and "failed" and "breached" and "rejected" and "down" and "SLA-breached" map to red; "paused" and "expired" and "archived" and "offline" and "cancelled" map to gray
+2. THE Status_Badge component SHALL render as a pill-shaped element with: a small colored dot (6px diameter) on the left, the status label text in sentence case, a subtle background tint matching the status color at 10% opacity, and a text color matching the status color at full intensity
+3. THE Admin_OS SHALL use the Status_Badge component for all status displays including: challenge account status, funded account status, payout status, KYC status, risk alert severity, ticket status, order status, affiliate status, system service health, staff online status, and certificate status
+4. IF a new status value is introduced that is not mapped in the unified status system, THEN THE Status_Badge component SHALL render it with the gray (neutral) color scheme and log a warning for developers to add the mapping
+5. THE Admin_OS SHALL display status transitions with a brief color fade animation (150ms duration) when a status value changes in real-time, transitioning from the previous status color to the new status color
+
+### Requirement 37: Command Center Interaction Patterns
+
+**User Story:** As a Staff_Member, I want the Admin OS to feel like an operations center with fast keyboard navigation, instant feedback, and zero unnecessary page transitions, so that my operational velocity is maximized.
+
+#### Acceptance Criteria
+
+1. THE Admin_OS SHALL support keyboard shortcuts for high-frequency operations: Ctrl+K/Cmd+K for global search, Escape to close any open panel or modal, Arrow keys to navigate within tables and slide-over panels, Enter to open the selected row, and number keys 1-9 to switch between navigation sections
+2. WHEN a Staff_Member performs a state-changing action (approve, reject, escalate, resolve), THE Admin_OS SHALL display immediate visual feedback (button state change, inline status update) within 100ms of the click, before server confirmation
+3. THE Admin_OS SHALL minimize full-page navigations by using Slide_Over_Panels for entity inspection, inline expansion for detail previews, and modal dialogs for confirmation prompts, restricting full-page navigation to cases where the target view requires more than 720 pixels of content width
+4. THE Admin_OS SHALL display all timestamps in a compact relative format by default ("2m ago", "1h ago", "3d ago") with a hover tooltip showing the full UTC timestamp in ISO 8601 format
+5. WHEN a Staff_Member navigates between operating centers using the sidebar navigation, THE Admin_OS SHALL complete the navigation transition (content swap) within 300ms, displaying a minimal loading skeleton if data is not immediately available
+6. THE Admin_OS SHALL display notification badges on navigation items using a compact red dot for counts 1-9 and a red badge with numeric count for counts 10 or above, positioned at the top-right corner of the navigation icon
+7. THE Admin_OS SHALL implement a persistent top bar (maximum 48 pixels height) displaying: the FundedWealth logo, global search trigger, notification bell with unread count, connection status indicator, the current Staff_Member's avatar, and the Operations_Feed toggle button, remaining fixed during all scrolling and navigation
+8. WHILE a background operation is in progress (export, bulk action), THE Admin_OS SHALL display a non-blocking progress indicator in the top bar showing operation type and completion percentage without obscuring the current view
+
+### Requirement 38: AI Operations Copilot
+
+**User Story:** As a Founder or Staff_Member, I want an AI-powered operations assistant embedded natively in the Admin OS that understands all FundedWealth entities and can answer operational queries, navigate me to relevant data, and generate summaries on demand, so that I can get answers and take action using natural language without navigating through multiple screens.
+
+#### Acceptance Criteria
+
+1. THE Admin_OS SHALL display a persistent Operations_Copilot trigger button in the top bar (adjacent to the search trigger and notification bell), accessible via keyboard shortcut Ctrl+J/Cmd+J, that opens the Operations_Copilot panel
+2. WHEN a Staff_Member activates the Operations_Copilot, THE Admin_OS SHALL open a right-side slide-over panel (width 400-480 pixels) with a text input field at the bottom, a response area above, and the panel header showing "Operations Copilot" with a connection status indicator
+3. THE Operations_Copilot SHALL understand and respond to natural-language queries about the following FundedWealth entities: Users, Challenge Accounts, Funded Accounts, Payout Requests, KYC Submissions, Risk Alerts, Support Tickets, Orders, Affiliates, Revenue metrics, and Staff activity
+4. WHEN a Staff_Member submits a data query (e.g., "How many pending payouts?", "Show KYC queue", "Show high-risk accounts", "Show today's registrations", "Show active funded traders", "Show payout liability", "Show revenue trends"), THE Operations_Copilot SHALL query the relevant data source respecting the Staff_Member's RBAC permissions and return a structured response within 5 seconds, displaying counts, lists, or summaries as appropriate to the query type
+5. IF a Staff_Member queries data for which they lack the required view permission, THEN THE Operations_Copilot SHALL respond with a message indicating insufficient permissions for that data category without revealing the underlying data
+6. THE Operations_Copilot SHALL support navigation commands where a Staff_Member can say "Go to payouts", "Open KYC queue", "Show risk alerts", "Navigate to user [email/name/ID]", and THE Admin_OS SHALL navigate the center content area to the corresponding operating center or entity detail, closing the copilot panel or keeping it open based on Staff_Member preference
+7. THE Operations_Copilot SHALL support report generation commands including: "Generate daily summary", "Generate founder report", "Generate risk report", "Generate support summary", where THE Operations_Copilot SHALL compile relevant metrics from the corresponding operating centers and present a formatted summary within the panel, with an option to copy to clipboard or export as text
+8. WHEN THE Operations_Copilot returns a response containing entity references (user names, account IDs, payout IDs, ticket IDs), EACH reference SHALL be rendered as a clickable link that opens the entity detail in a Slide_Over_Panel or navigates to the entity's operating center
+9. THE Operations_Copilot SHALL maintain conversation context within a session, allowing follow-up queries (e.g., "Show pending payouts" followed by "Which ones are older than 48 hours?" referring to the previous result set), retaining context for up to 10 consecutive exchanges or until the panel is closed
+10. THE Operations_Copilot panel SHALL render responses using structured formatting: tables for list data (maximum 10 rows inline with a "Show all" link for larger sets), metric cards for single values with delta indicators, and bullet lists for summaries, matching the Design_System tokens and Status_Badge styles used across the Admin OS
+11. THE Operations_Copilot SHALL display a set of suggested quick-action chips below the input field when the panel is first opened or when idle, showing context-aware suggestions based on the Staff_Member's role (e.g., a Finance Manager sees "Pending payouts", "Payout liability", "Today's approvals"; a Risk Manager sees "High-risk accounts", "Active breaches", "Risk exposure")
+12. THE Operations_Copilot panel SHALL feel native to the Admin OS design system — using the same dark theme, typography scale, spacing tokens, Status_Badge components, and animation timings as all other panels — and SHALL NOT resemble a consumer chatbot (no chat bubbles, no avatar icons, no typing indicators with animated dots)
+13. WHEN THE Operations_Copilot is processing a query, THE panel SHALL display a minimal linear progress bar at the top of the response area (not animated dots or a spinning loader) and SHALL stream the response progressively as data becomes available
+14. THE Operations_Copilot SHALL log all queries and responses in the Audit_Compliance_Center with: Staff_Member identity, query text, timestamp, response summary (first 200 characters), and data entities accessed, creating an Audit_Record for compliance purposes
+15. THE Operations_Copilot SHALL support a "pin response" action where a Staff_Member can pin a copilot response (metric, summary, or list) to their Executive_Command_Center as a temporary widget visible for the current session, with a maximum of 3 pinned responses at a time

@@ -33,6 +33,55 @@
     --sidebar-border: 214.3 31.8% 91.4%;
     --sidebar-accent: 210 40% 96.1%;
     --sidebar-accent-foreground: 222.2 47.4% 11.2%;
+
+    /* === Premium Fintech Design Tokens === */
+
+    /* Semantic Color Scale */
+    --color-background: 222 84% 4.9%;
+    --color-surface: 222 47% 8%;
+    --color-surface-raised: 222 47% 11%;
+    --color-border: 217 33% 17.5%;
+    --color-border-subtle: 217 33% 13%;
+    --color-text-primary: 210 40% 98%;
+    --color-text-secondary: 215 20% 65%;
+    --color-text-muted: 215 16% 47%;
+    --color-accent: 217 91% 60%;
+    --color-success: 142 76% 36%;
+    --color-warning: 38 92% 50%;
+    --color-critical: 0 84% 60%;
+    --color-info: 217 91% 60%;
+
+    /* Spacing Scale (4px base) */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-7: 32px;
+    --space-8: 48px;
+
+    /* Typography Scale */
+    --font-display: 600 24px/1.2 var(--font-sans);
+    --font-heading: 600 18px/1.3 var(--font-sans);
+    --font-subheading: 500 14px/1.4 var(--font-sans);
+    --font-body: 400 13px/1.5 var(--font-sans);
+    --font-caption: 400 11px/1.4 var(--font-sans);
+    --font-mono: 400 12px/1.5 var(--font-mono);
+
+    /* Elevation */
+    --elevation-flat: none;
+    --elevation-raised: 0 1px 3px rgba(0,0,0,0.12);
+    --elevation-overlay: 0 8px 24px rgba(0,0,0,0.24);
+
+    /* Layout */
+    --nav-width: 240px;
+    --nav-collapsed: 64px;
+    --feed-width: 340px;
+    --topbar-height: 48px;
+    --table-row-compact: 36px;
+    --table-row-default: 44px;
+    --table-row-comfortable: 52px;
   }
 
   .dark {
@@ -64,6 +113,55 @@
     --sidebar-border: 217.2 32.6% 17.5%;
     --sidebar-accent: 217.2 32.6% 17.5%;
     --sidebar-accent-foreground: 210 40% 98%;
+
+    /* === Premium Fintech Design Tokens (Dark) === */
+
+    /* Semantic Color Scale */
+    --color-background: 222 84% 4.9%;
+    --color-surface: 222 47% 8%;
+    --color-surface-raised: 222 47% 11%;
+    --color-border: 217 33% 17.5%;
+    --color-border-subtle: 217 33% 13%;
+    --color-text-primary: 210 40% 98%;
+    --color-text-secondary: 215 20% 65%;
+    --color-text-muted: 215 16% 47%;
+    --color-accent: 217 91% 60%;
+    --color-success: 142 76% 36%;
+    --color-warning: 38 92% 50%;
+    --color-critical: 0 84% 60%;
+    --color-info: 217 91% 60%;
+
+    /* Spacing Scale (4px base) */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-7: 32px;
+    --space-8: 48px;
+
+    /* Typography Scale */
+    --font-display: 600 24px/1.2 var(--font-sans);
+    --font-heading: 600 18px/1.3 var(--font-sans);
+    --font-subheading: 500 14px/1.4 var(--font-sans);
+    --font-body: 400 13px/1.5 var(--font-sans);
+    --font-caption: 400 11px/1.4 var(--font-sans);
+    --font-mono: 400 12px/1.5 var(--font-mono);
+
+    /* Elevation */
+    --elevation-flat: none;
+    --elevation-raised: 0 1px 3px rgba(0,0,0,0.12);
+    --elevation-overlay: 0 8px 24px rgba(0,0,0,0.24);
+
+    /* Layout */
+    --nav-width: 240px;
+    --nav-collapsed: 64px;
+    --feed-width: 340px;
+    --topbar-height: 48px;
+    --table-row-compact: 36px;
+    --table-row-default: 44px;
+    --table-row-comfortable: 52px;
   }
 }
 
@@ -72,6 +170,81 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-size: 13px;
+    font-feature-settings: "cv11", "ss01", "ss03";
+  }
+  /* Stripe/Linear-inspired scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.2);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+  }
+}
+
+@layer utilities {
+  /* Tabular numerics for aligned number columns */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Table row density classes */
+  .row-compact {
+    height: var(--table-row-compact);
+  }
+
+  .row-default {
+    height: var(--table-row-default);
+  }
+
+  .row-comfortable {
+    height: var(--table-row-comfortable);
+  }
+
+  /* Right-aligned numeric column utility */
+  .numeric-col {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+  }
+
+  /* Page and card padding constraints */
+  .page-padding {
+    padding-inline: min(var(--space-6), 24px);
+  }
+
+  .card-padding {
+    padding: var(--space-4);
+  }
+
+  /* Typography utilities */
+  .text-display {
+    font: var(--font-display);
+  }
+
+  .text-heading {
+    font: var(--font-heading);
+  }
+
+  .text-subheading {
+    font: var(--font-subheading);
+  }
+
+  .text-body-sm {
+    font: var(--font-body);
+  }
+
+  .text-caption-sm {
+    font: var(--font-caption);
   }
 }

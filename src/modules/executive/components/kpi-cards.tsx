@@ -1,42 +1,47 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, Trophy, TrendingUp, DollarSign, Wallet, ShieldCheck, Headphones, AlertTriangle } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Users, Trophy, TrendingUp, DollarSign, Wallet, ShieldCheck, Headphones, AlertTriangle, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 
 interface KPIData {
   activeUsers: number;
   activeChallenges: number;
   activeFunded: number;
-  revenueMTD: number;
-  revenueDaily: number;
+  revenueToday: number;
+  revenueYesterday: number;
+  revenueDelta: number;
   pendingPayouts: number;
+  pendingPayoutValue: number;
   pendingKYC: number;
   openTickets: number;
   riskAlerts: number;
+  challengePassRate: number;
+  challengeFailRate: number;
+  staffOnline: number;
 }
 
 const defaultKPI: KPIData = {
-  activeUsers: 0,
-  activeChallenges: 0,
-  activeFunded: 0,
-  revenueMTD: 0,
-  revenueDaily: 0,
-  pendingPayouts: 0,
-  pendingKYC: 0,
-  openTickets: 0,
-  riskAlerts: 0,
+  activeUsers: 0, activeChallenges: 0, activeFunded: 0,
+  revenueToday: 0, revenueYesterday: 0, revenueDelta: 0,
+  pendingPayouts: 0, pendingPayoutValue: 0, pendingKYC: 0,
+  openTickets: 0, riskAlerts: 0,
+  challengePassRate: 0, challengeFailRate: 0, staffOnline: 3,
 };
+
+function DeltaIndicator({ value }: { value: number }) {
+  if (value === 0) return <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground"><Minus className="h-2.5 w-2.5" />0%</span>;
+  if (value > 0) return <span className="flex items-center gap-0.5 text-[10px] text-green-600"><ArrowUp className="h-2.5 w-2.5" />+{value.toFixed(1)}%</span>;
+  return <span className="flex items-center gap-0.5 text-[10px] text-red-600"><ArrowDown className="h-2.5 w-2.5" />{value.toFixed(1)}%</span>;
+}
 
 export function KPICards() {
   const [data, setData] = useState<KPIData>(defaultKPI);
-  const [stale, setStale] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchKPIs();
-    // Refresh every 30 seconds
     const interval = setInterval(fetchKPIs, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -46,50 +51,42 @@ export function KPICards() {
       const res = await fetch('/api/executive/metrics');
       if (res.ok) {
         const json = await res.json();
-        setData(json.data || defaultKPI);
-        setStale({});
-      } else {
-        // Mark data as stale
-        setStale((prev) => ({ ...prev, all: new Date().toISOString() }));
+        setData({ ...defaultKPI, ...json.data });
       }
-    } catch {
-      setStale((prev) => ({ ...prev, all: new Date().toISOString() }));
-    } finally {
-      setLoading(false);
-    }
+    } catch {} finally { setLoading(false); }
   }
 
   const cards = [
-    { title: 'Active Users', value: data.activeUsers.toLocaleString(), icon: Users, subtitle: 'Last 30 days activity' },
-    { title: 'Active Challenges', value: data.activeChallenges.toLocaleString(), icon: Trophy, subtitle: 'Currently in evaluation' },
-    { title: 'Funded Accounts', value: data.activeFunded.toLocaleString(), icon: TrendingUp, subtitle: 'Active funded traders' },
-    { title: 'Revenue (MTD)', value: formatCurrency(data.revenueMTD), icon: DollarSign, subtitle: `Today: ${formatCurrency(data.revenueDaily)}` },
-    { title: 'Pending Payouts', value: data.pendingPayouts.toLocaleString(), icon: Wallet, subtitle: 'Awaiting review' },
-    { title: 'Pending KYC', value: data.pendingKYC.toLocaleString(), icon: ShieldCheck, subtitle: 'In review queue' },
-    { title: 'Open Tickets', value: data.openTickets.toLocaleString(), icon: Headphones, subtitle: 'Support queue' },
-    { title: 'Risk Alerts', value: data.riskAlerts.toLocaleString(), icon: AlertTriangle, subtitle: 'Active alerts' },
+    { label: 'Revenue Today', value: formatCurrency(data.revenueToday), delta: data.revenueDelta, icon: DollarSign, accent: 'text-green-600' },
+    { label: 'Revenue Yesterday', value: formatCurrency(data.revenueYesterday), icon: DollarSign, accent: 'text-muted-foreground' },
+    { label: 'Active Users', value: data.activeUsers.toLocaleString(), icon: Users, accent: 'text-blue-600' },
+    { label: 'Active Challenges', value: data.activeChallenges.toLocaleString(), icon: Trophy, accent: 'text-purple-600' },
+    { label: 'Funded Accounts', value: data.activeFunded.toLocaleString(), icon: TrendingUp, accent: 'text-emerald-600' },
+    { label: 'Pending Payouts', value: `${data.pendingPayouts}`, subtitle: formatCurrency(data.pendingPayoutValue), icon: Wallet, accent: 'text-amber-600' },
+    { label: 'Pending KYC', value: data.pendingKYC.toLocaleString(), icon: ShieldCheck, accent: 'text-orange-600' },
+    { label: 'Open Tickets', value: data.openTickets.toLocaleString(), icon: Headphones, accent: 'text-indigo-600' },
+    { label: 'Risk Alerts', value: data.riskAlerts.toLocaleString(), icon: AlertTriangle, accent: data.riskAlerts > 0 ? 'text-red-600' : 'text-muted-foreground' },
+    { label: 'Pass Rate', value: `${data.challengePassRate}%`, icon: Trophy, accent: 'text-green-600' },
+    { label: 'Fail Rate', value: `${data.challengeFailRate}%`, icon: Trophy, accent: 'text-red-600' },
+    { label: 'Staff Online', value: data.staffOnline.toLocaleString(), icon: Users, accent: 'text-green-600' },
   ];
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
       {cards.map((card) => {
         const Icon = card.icon;
         return (
-          <Card key={card.title} className="relative">
-            {stale.all && (
-              <div className="absolute top-2 right-2">
-                <span className="inline-flex h-2 w-2 rounded-full bg-warning animate-pulse" title="Data may be stale" />
+          <Card key={card.label} className="hover:border-primary/20 transition-colors">
+            <CardContent className="p-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{card.label}</span>
+                <Icon className={`h-3.5 w-3.5 ${card.accent}`} />
               </div>
-            )}
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{card.title}</CardTitle>
-              <Icon className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {loading ? '—' : card.value}
+              <div className="flex items-baseline gap-2">
+                <span className="text-lg font-bold leading-none">{loading ? '—' : card.value}</span>
+                {card.delta !== undefined && <DeltaIndicator value={card.delta} />}
               </div>
-              <p className="text-xs text-muted-foreground">{card.subtitle}</p>
+              {card.subtitle && <p className="text-[10px] text-muted-foreground mt-0.5">{card.subtitle}</p>}
             </CardContent>
           </Card>
         );

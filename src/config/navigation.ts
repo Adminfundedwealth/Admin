@@ -16,13 +16,25 @@ export interface NavigationSection {
 
 export const sidebarNavigation: NavigationSection[] = [
   {
-    label: 'Overview',
+    label: 'Founder',
     items: [
       {
         label: 'Executive Command',
         icon: 'LayoutDashboard',
         href: '/executive',
         permission: 'revenue.view',
+      },
+      {
+        label: 'Staff Activity',
+        icon: 'Activity',
+        href: '/founder/activity',
+        permission: null,
+      },
+      {
+        label: 'Emergency Controls',
+        icon: 'ShieldCheck',
+        href: '/founder/emergency',
+        permission: null,
       },
     ],
   },

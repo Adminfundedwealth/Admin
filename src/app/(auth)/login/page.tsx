@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,6 +54,15 @@ export default function LoginPage() {
   return (
     <Card className="w-full">
       <CardHeader className="space-y-1 text-center">
+        <div className="flex justify-center mb-2">
+          <Image
+            src="/logo.svg"
+            alt="FundedWealth Logo"
+            width={48}
+            height={48}
+            className="h-12 w-12"
+          />
+        </div>
         <CardTitle className="text-2xl font-bold tracking-tight">
           FundedWealth Admin
         </CardTitle>
