@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { requirePermissionInHandler } from '@/lib/security/require-auth';
 
 /**
  * GET /api/payouts/[id]
  * Full payout detail with status history.
+ * SECURITY: Defense-in-depth auth check in handler.
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const { error: authError } = await requirePermissionInHandler('payouts.view');
+    if (authError) return authError;
+
     const supabase = createAdminClient();
 
     const { data: payout, error } = await supabase

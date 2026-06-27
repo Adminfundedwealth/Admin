@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 /**
  * GET /api/executive/queues
  * Returns queue counts for pending payouts, KYC, tickets, risk alerts.
- * Uses existing tables: payout_requests, kyc_submissions, support_tickets, risk_alerts.
+ * Reads: payout_requests, kyc_submissions, support_tickets, risk_alerts
+ * Auth: Handled by middleware (session_token cookie → staff_sessions validation)
  */
 
 function calcAge(items: any[] | null, now: number): string {
@@ -40,19 +41,14 @@ function priorityBreakdown(items: any[] | null, field: string): { critical: numb
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const supabase = createAdminClient();
 
     // Parallel queries for all queues
     const [payoutsRes, kycRes, ticketsRes, riskRes] = await Promise.all([
       supabase
         .from('payout_requests')
         .select('id, priority, created_at', { count: 'exact' })
-        .eq('status', 'pending')
+        .in('status', ['request_received', 'under_review'])
         .order('created_at', { ascending: true }),
       supabase
         .from('kyc_submissions')

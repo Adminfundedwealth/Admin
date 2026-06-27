@@ -5,6 +5,8 @@
 
 export const RESOURCES = [
   'users',
+  'purchases',
+  'payments',
   'payouts',
   'kyc',
   'risk',
@@ -43,6 +45,10 @@ export const ALL_PERMISSIONS: Permission[] = [
   'users.edit',
   'users.ban',
   'users.delete',
+  'purchases.view',
+  'purchases.manage',
+  'payments.view',
+  'payments.manage',
   'payouts.view',
   'payouts.approve',
   'payouts.reject',

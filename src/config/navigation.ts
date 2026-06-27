@@ -39,6 +39,25 @@ export const sidebarNavigation: NavigationSection[] = [
     ],
   },
   {
+    label: 'Commerce',
+    items: [
+      {
+        label: 'Purchase Orders',
+        icon: 'ShoppingCart',
+        href: '/purchases',
+        permission: 'purchases.view',
+        badge: { query: 'purchases_pending' },
+      },
+      {
+        label: 'Payments',
+        icon: 'CreditCard',
+        href: '/payments',
+        permission: 'payments.view',
+        badge: { query: 'payments_failed' },
+      },
+    ],
+  },
+  {
     label: 'User Operations',
     items: [
       {
@@ -116,7 +135,7 @@ export const sidebarNavigation: NavigationSection[] = [
         permission: 'trades.view',
       },
       {
-        label: 'Order Monitoring',
+        label: 'Trading Orders',
         icon: 'ListOrdered',
         href: '/orders',
         permission: 'trades.view',

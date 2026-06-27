@@ -71,6 +71,16 @@ export default function ExecutiveCommandCenter() {
         </Suspense>
       </section>
 
+      {/* Terminal Lifecycle Events */}
+      <section aria-label="Lifecycle Events">
+        <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2">
+          Terminal Lifecycle
+        </h2>
+        <Suspense fallback={<SkeletonRow count={1} />}>
+          <LifecycleEvents />
+        </Suspense>
+      </section>
+
       {/* Revenue Trends */}
       <section aria-label="Revenue Trends">
         <Suspense fallback={<SkeletonRow count={1} />}>
@@ -287,6 +297,70 @@ function ComparisonSelector() {
       <option value="last_month">vs Last Month</option>
       <option value="same_day_last_month">vs Same Day Last Month</option>
     </select>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Terminal Lifecycle Events
+// ---------------------------------------------------------------------------
+
+function LifecycleEvents() {
+  const [events, setEvents] = useState<Array<{
+    id: string;
+    type: string;
+    category: string;
+    severity: string;
+    description: string;
+    linkTo: string;
+    timestamp: string;
+  }>>([]);
+
+  useEffect(() => {
+    fetchLifecycle();
+    const interval = setInterval(fetchLifecycle, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  async function fetchLifecycle() {
+    try {
+      const res = await fetch('/api/integration/lifecycle?hours=12');
+      if (res.ok) {
+        const data = await res.json();
+        setEvents(data.data?.slice(0, 8) || []);
+      }
+    } catch {}
+  }
+
+  const severityColor: Record<string, string> = {
+    critical: 'border-l-red-500 bg-red-50/30 dark:bg-red-900/10',
+    high: 'border-l-orange-500 bg-orange-50/30 dark:bg-orange-900/10',
+    warning: 'border-l-amber-400',
+    success: 'border-l-emerald-500',
+    info: 'border-l-blue-400',
+  };
+
+  if (events.length === 0) {
+    return (
+      <div className="text-xs text-muted-foreground py-3 px-3 border rounded-md">
+        No recent lifecycle events.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      {events.map((evt) => (
+        <div
+          key={evt.id}
+          className={`border-l-2 pl-3 py-1.5 rounded-r-sm ${severityColor[evt.severity] || ''}`}
+        >
+          <p className="text-[12px] text-foreground leading-snug">{evt.description}</p>
+          <span className="text-[10px] text-muted-foreground">
+            {new Date(evt.timestamp).toLocaleTimeString()} · {evt.category}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 

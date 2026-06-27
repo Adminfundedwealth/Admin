@@ -158,9 +158,23 @@ export async function POST(request: NextRequest) {
 
     // Check if 2FA setup is required (first login)
     if (!staff.totp_enabled) {
+      // Generate a setup token (NOT the staffId) for 2FA setup
+      const setupToken = crypto.randomUUID();
+      await supabase.from('staff_sessions').insert({
+        staff_id: staff.id,
+        token_hash: `2fa_setup:${setupToken}`,
+        ip_address: getClientIP(request),
+        device_fingerprint: request.headers.get('x-device-fingerprint') || null,
+        browser: request.headers.get('user-agent') || null,
+        os: null,
+        created_at: new Date().toISOString(),
+        last_activity: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5 min for setup
+      });
+
       return NextResponse.json({
         requiresSetup2FA: true,
-        staffId: staff.id,
+        setupToken,
       });
     }
 

@@ -1,16 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { requireAuthInHandler } from '@/lib/security/require-auth';
+import { sanitizeSearchInput } from '@/lib/security/sanitize';
 
 /**
  * GET /api/search?q=query
  * Global search across users, accounts, tickets, and all entity types.
  * Returns results grouped by entity type (max 5 per group).
  * Requires min 2 characters. Results within 2 seconds.
+ * 
+ * SECURITY: Sanitizes search input to prevent PostgREST filter injection.
  */
 export async function GET(request: NextRequest) {
-  const query = request.nextUrl.searchParams.get('q');
+  // Defense-in-depth auth
+  const { error: authError } = await requireAuthInHandler();
+  if (authError) return authError;
 
-  if (!query || query.length < 2) {
+  const rawQuery = request.nextUrl.searchParams.get('q');
+
+  if (!rawQuery || rawQuery.length < 2) {
+    return NextResponse.json({ results: {} });
+  }
+
+  // Sanitize input to prevent filter injection
+  const query = sanitizeSearchInput(rawQuery);
+  if (query.length < 2) {
     return NextResponse.json({ results: {} });
   }
 
@@ -18,11 +32,11 @@ export async function GET(request: NextRequest) {
   const results: Record<string, Array<{ id: string; type: string; title: string; subtitle: string; href: string }>> = {};
 
   try {
-    // Search users via full-text search
+    // Search users — use individual ilike filters to avoid .or() injection
     const { data: users } = await supabase
       .from('users')
       .select('id, email, username, first_name, last_name')
-      .or(`email.ilike.%${query}%,username.ilike.%${query}%,first_name.ilike.%${query}%,last_name.ilike.%${query}%,phone.ilike.%${query}%`)
+      .or(`email.ilike.%${query}%,username.ilike.%${query}%,first_name.ilike.%${query}%,last_name.ilike.%${query}%`)
       .limit(5);
 
     if (users && users.length > 0) {
@@ -105,7 +119,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ results });
   } catch (err) {
-    console.error('Search error:', err);
+    console.error('Search error:', err instanceof Error ? err.message : 'Unknown');
     return NextResponse.json({ results: {} });
   }
 }

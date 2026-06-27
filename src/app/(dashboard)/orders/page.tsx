@@ -54,7 +54,7 @@ export default function OrdersPage() {
 
   return (
     <div className="space-y-6">
-      <div><h1 className="text-3xl font-bold tracking-tight">Order Monitoring Center</h1><p className="text-muted-foreground">Track order execution and investigate rejections</p></div>
+      <div><h1 className="text-3xl font-bold tracking-tight">Trading Order Monitoring</h1><p className="text-muted-foreground">Track trading execution orders and investigate rejections (terminal/trading layer)</p></div>
       <FilterBar onClear={() => setFilters({ status: '', symbol: '', orderType: '', dateFrom: '', dateTo: '' })} hasActiveFilters={Object.values(filters).some(Boolean)}>
         <SelectFilter label="Status" value={filters.status} onChange={(v) => setFilters(f => ({ ...f, status: v }))} options={[{ label: 'Open', value: 'open' }, { label: 'Filled', value: 'filled' }, { label: 'Cancelled', value: 'cancelled' }, { label: 'Rejected', value: 'rejected' }]} />
         <TextFilter label="Symbol" value={filters.symbol} onChange={(v) => setFilters(f => ({ ...f, symbol: v }))} placeholder="e.g. EURUSD" />

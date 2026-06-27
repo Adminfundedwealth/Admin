@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { requirePermissionInHandler } from '@/lib/security/require-auth';
 
 /**
  * GET /api/staff/presence
@@ -7,6 +8,9 @@ import { createAdminClient } from '@/lib/supabase/admin';
  */
 export async function GET() {
   try {
+    const { error: authError } = await requirePermissionInHandler('staff.view');
+    if (authError) return authError;
+
     const supabase = createAdminClient();
     const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
 

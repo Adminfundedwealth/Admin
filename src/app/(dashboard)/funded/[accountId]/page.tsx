@@ -2,18 +2,20 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/shared/loading-state';
 import { ErrorState } from '@/components/shared/error-state';
 import { LineChart } from '@/components/charts';
 import { formatCurrency, formatPercentage } from '@/lib/utils';
-import { CheckCircle, XCircle } from 'lucide-react';
+import { CheckCircle, XCircle, ExternalLink } from 'lucide-react';
 
 interface FundedDetail {
   id: string;
   account_number: string;
   user_id: string;
+  challenge_account_id: string | null;
   account_size: number;
   current_equity: number;
   profit_loss: number;
@@ -163,6 +165,42 @@ export default function FundedDetailPage() {
             </CardContent>
           </Card>
         </div>
+      </div>
+
+      {/* Account Linkage */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Customer</CardTitle>
+              <Link href={`/users/${account.user_id}`} className="text-xs text-primary hover:underline flex items-center gap-1">
+                View Profile <ExternalLink className="h-3 w-3" />
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-muted-foreground">User ID</span><span className="font-mono text-xs">{account.user_id}</span></div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Source Challenge</CardTitle>
+              {account.challenge_account_id && (
+                <Link href={`/challenges/${account.challenge_account_id}`} className="text-xs text-primary hover:underline flex items-center gap-1">
+                  View Challenge <ExternalLink className="h-3 w-3" />
+                </Link>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {account.challenge_account_id ? (
+              <div className="flex justify-between"><span className="text-muted-foreground">Challenge ID</span><span className="font-mono text-xs">{account.challenge_account_id}</span></div>
+            ) : (
+              <p className="text-muted-foreground text-center py-2">Direct funded account (no challenge source)</p>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Drawdown Details */}

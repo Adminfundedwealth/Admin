@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { requirePermissionInHandler } from '@/lib/security/require-auth';
 
 export async function GET(request: NextRequest) {
   try {
+    const { error: authError } = await requirePermissionInHandler('trades.view');
+    if (authError) return authError;
+
     const supabase = createAdminClient();
     const params = request.nextUrl.searchParams;
     const symbol = params.get('symbol');

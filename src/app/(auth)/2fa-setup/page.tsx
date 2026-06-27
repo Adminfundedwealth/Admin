@@ -1,13 +1,16 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { QRCodeSVG } from 'qrcode.react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 export default function TwoFactorSetupPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const staffId = searchParams.get('staffId');
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [secret, setSecret] = useState('');
   const [code, setCode] = useState('');
@@ -17,8 +20,17 @@ export default function TwoFactorSetupPage() {
 
   useEffect(() => {
     async function initSetup() {
+      if (!staffId) {
+        setError('Missing staff ID. Please log in again.');
+        return;
+      }
+
       try {
-        const res = await fetch('/api/auth/2fa/setup', { method: 'POST' });
+        const res = await fetch('/api/auth/2fa/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ staffId }),
+        });
         const data = await res.json();
 
         if (!res.ok) {
@@ -35,7 +47,7 @@ export default function TwoFactorSetupPage() {
     }
 
     initSetup();
-  }, []);
+  }, [staffId]);
 
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault();
@@ -48,7 +60,7 @@ export default function TwoFactorSetupPage() {
       const res = await fetch('/api/auth/2fa/setup/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, secret }),
+        body: JSON.stringify({ code, secret, staffId }),
       });
 
       const data = await res.json();
@@ -114,12 +126,7 @@ export default function TwoFactorSetupPage() {
 
             {qrCodeUrl && (
               <div className="flex justify-center p-4 bg-white rounded-lg">
-                {/* QR Code would be rendered here via a QR library */}
-                <div className="w-48 h-48 border-2 border-dashed border-muted-foreground/30 flex items-center justify-center rounded">
-                  <p className="text-xs text-muted-foreground text-center px-2">
-                    QR Code<br />(requires qrcode library)
-                  </p>
-                </div>
+                <QRCodeSVG value={qrCodeUrl} size={192} level="M" />
               </div>
             )}
 

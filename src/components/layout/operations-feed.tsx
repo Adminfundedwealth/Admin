@@ -24,6 +24,9 @@ const eventConfig: Record<string, { icon: typeof UserPlus; color: string }> = {
   risk_alert: { icon: AlertTriangle, color: 'text-red-500' },
   staff_login: { icon: LogIn, color: 'text-muted-foreground' },
   staff_logout: { icon: LogOut, color: 'text-muted-foreground' },
+  provisioning_update: { icon: ShoppingCart, color: 'text-cyan-500' },
+  account_status: { icon: AlertTriangle, color: 'text-orange-500' },
+  payment_event: { icon: Wallet, color: 'text-green-600' },
 };
 
 const categories: { value: FeedCategory; label: string }[] = [
@@ -33,6 +36,7 @@ const categories: { value: FeedCategory; label: string }[] = [
   { value: 'kyc_submission', label: 'KYC' },
   { value: 'risk_alert', label: 'Risk' },
   { value: 'ticket_created', label: 'Support' },
+  { value: 'provisioning_update', label: 'Provisioning' },
   { value: 'staff_login', label: 'Staff' },
 ];
 

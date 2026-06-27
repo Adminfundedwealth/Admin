@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getAuthenticatedStaff } from '@/lib/auth/get-staff';
 import { z } from 'zod';
 
 // Valid state transitions
@@ -54,6 +55,12 @@ export async function POST(
     }
 
     const supabase = createAdminClient();
+
+    // Authenticate staff
+    const staff = await getAuthenticatedStaff();
+    if (!staff) {
+      return NextResponse.json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } }, { status: 401 });
+    }
 
     // Fetch current challenge
     const { data: challenge, error: fetchErr } = await supabase
@@ -119,8 +126,8 @@ export async function POST(
 
     // Create audit record
     await supabase.from('audit_records').insert({
-      actor_id: '00000000-0000-0000-0000-000000000000', // TODO: get from session
-      actor_role: 'staff',
+      actor_id: staff.id,
+      actor_role: staff.roles[0] || 'staff',
       action: `challenge.${action}`,
       target_entity_type: 'challenge_account',
       target_entity_id: params.id,

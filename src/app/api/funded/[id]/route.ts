@@ -1,109 +1,147 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { z } from 'zod';
+import { requirePermissionInHandler } from '@/lib/security/require-auth';
 
 /**
  * GET /api/funded/[id]
- * Full funded account detail with performance data and eligibility.
+ * Full funded account detail.
+ *
+ * LIVE DB REALITY (verified):
+ * - `funded_accounts` DOES NOT EXIST.
+ * - Look up in challenge_accounts first (terminal-owned), then trading_accounts.
+ * - provisioning_logs links accounts back to orders.
+ * - `trades` table NOT VERIFIED — query will gracefully return empty.
+ *
+ * LIVE challenge_accounts columns:
+ *   id, trader_id, type, plan, initial_balance, current_balance, peak_balance,
+ *   profit_target_pct, daily_loss_limit_pct, max_drawdown_pct, min_trading_days, max_calendar_days,
+ *   status, started_at, expires_at, passed_at, failed_at, fail_reason, promoted_from, created_at, updated_at
+ *
+ * LIVE trading_accounts columns:
+ *   id, trader_id, challenge_id, account_code, broker_provider, broker_client_id,
+ *   broker_credentials_encrypted, balance, available_margin, used_margin, status, locked_reason, created_at, updated_at
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createAdminClient();
+    const { error: authError } = await requirePermissionInHandler('challenges.view');
+    if (authError) return authError;
 
-    const { data: account, error } = await supabase
-      .from('funded_accounts')
+    const supabase = createAdminClient();
+    const accountId = params.id;
+
+    // Lookup in challenge_accounts first
+    let account: any = null;
+    let accountSource = 'challenge_accounts';
+
+    const { data: challengeData } = await supabase
+      .from('challenge_accounts')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', accountId)
       .single();
 
-    if (error || !account) {
+    if (challengeData) {
+      account = challengeData;
+      accountSource = 'challenge_accounts';
+    } else {
+      // Fallback: try trading_accounts
+      const { data: tradingData } = await supabase
+        .from('trading_accounts')
+        .select('*')
+        .eq('id', accountId)
+        .single();
+
+      if (tradingData) {
+        account = tradingData;
+        accountSource = 'trading_accounts';
+      }
+    }
+
+    if (!account) {
       return NextResponse.json({ error: { code: 'NOT_FOUND', message: 'Account not found' } }, { status: 404 });
     }
 
-    // Get user KYC status for eligibility
-    const { data: user } = await supabase
-      .from('users')
-      .select('kyc_status')
-      .eq('id', account.user_id)
-      .single();
+    // Provisioning linkage
+    let provisioning = null;
+    const { data: provLogs } = await supabase
+      .from('provisioning_logs')
+      .select('*')
+      .or(`challenge_account_id.eq.${accountId},trading_account_id.eq.${accountId}`)
+      .order('created_at', { ascending: false });
 
-    // Calculate eligibility criteria
-    const eligibility = {
-      min_trading_days: true, // TODO: check actual trading days
-      profit_threshold: account.profit_loss > 0,
-      no_violations: account.violation_count === 0,
-      kyc_verified: user?.kyc_status === 'verified',
-    };
+    if (provLogs && provLogs.length > 0) {
+      provisioning = {
+        status: provLogs[0].status,
+        order_id: provLogs[0].order_id,
+        error_message: provLogs[0].error_message || null,
+        logs: provLogs,
+      };
+    }
 
-    // Get trade stats
-    const { data: trades } = await supabase
-      .from('trades')
-      .select('profit_loss')
-      .eq('account_id', params.id)
-      .eq('account_type', 'funded')
-      .eq('status', 'closed');
+    // Originating order (LIVE columns: plan_type not plan)
+    let originatingOrder = null;
+    const orderId = provisioning?.order_id;
+    if (orderId) {
+      const { data: orderData } = await supabase
+        .from('orders')
+        .select('id, user_id, plan_type, amount, account_size, status, payment_method, created_at')
+        .eq('id', orderId)
+        .single();
+      originatingOrder = orderData;
+    }
 
-    const closedTrades = trades || [];
-    const wins = closedTrades.filter(t => (t.profit_loss || 0) > 0);
-    const losses = closedTrades.filter(t => (t.profit_loss || 0) < 0);
+    // Resolve user from order
+    let user = null;
+    if (originatingOrder?.user_id) {
+      const { data: userData } = await supabase
+        .from('users')
+        .select('id, email, first_name, last_name, kyc_status')
+        .eq('id', originatingOrder.user_id)
+        .single();
+      user = userData;
+    }
 
-    const tradeStats = {
-      total: closedTrades.length,
-      winRate: closedTrades.length > 0 ? (wins.length / closedTrades.length) * 100 : 0,
-      avgWin: wins.length > 0 ? wins.reduce((s, t) => s + (t.profit_loss || 0), 0) / wins.length : 0,
-      avgLoss: losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + (t.profit_loss || 0), 0) / losses.length) : 0,
-    };
-
-    // Equity curve (last 30 days - simplified)
-    const equityCurve: { date: string; equity: number }[] = [];
+    // Linked trading account (if viewing a challenge account)
+    let linkedTradingAccount = null;
+    if (accountSource === 'challenge_accounts') {
+      const { data: taData } = await supabase
+        .from('trading_accounts')
+        .select('id, account_code, broker_provider, balance, available_margin, used_margin, status')
+        .eq('challenge_id', accountId)
+        .limit(1);
+      if (taData && taData.length > 0) {
+        linkedTradingAccount = taData[0];
+      }
+    }
 
     return NextResponse.json({
-      data: { account, eligibility, tradeStats, equityCurve },
+      data: {
+        account,
+        accountSource,
+        user: user ? {
+          id: user.id,
+          email: user.email,
+          name: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email,
+          kyc_status: user.kyc_status,
+        } : null,
+        provisioning,
+        originatingOrder: originatingOrder ? {
+          id: originatingOrder.id,
+          user_id: originatingOrder.user_id,
+          plan_type: originatingOrder.plan_type,
+          amount: originatingOrder.amount,
+          account_size: originatingOrder.account_size,
+          status: originatingOrder.status,
+          payment_method: originatingOrder.payment_method,
+          created_at: originatingOrder.created_at,
+        } : null,
+        linkedTradingAccount,
+      },
     });
   } catch (err) {
     console.error('Funded detail error:', err);
     return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch account' } }, { status: 500 });
-  }
-}
-
-/**
- * PATCH /api/funded/[id]
- * Modify a funded account (requires reason, creates audit record).
- */
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const body = await request.json();
-    const schema = z.object({ reason: z.string().min(10) });
-    const parsed = schema.safeParse(body);
-
-    if (!parsed.success) {
-      return NextResponse.json({ error: { code: 'VALIDATION_ERROR', message: 'Reason must be at least 10 characters' } }, { status: 400 });
-    }
-
-    const supabase = createAdminClient();
-
-    // Create audit record
-    await supabase.from('audit_records').insert({
-      actor_id: '00000000-0000-0000-0000-000000000000', // TODO: from session
-      actor_role: 'staff',
-      action: 'funded_account.modified',
-      target_entity_type: 'funded_account',
-      target_entity_id: params.id,
-      previous_state: null,
-      new_state: { reason: parsed.data.reason },
-      ip_address: request.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1',
-      device_info: { userAgent: request.headers.get('user-agent') || '' },
-    });
-
-    return NextResponse.json({ data: { success: true } });
-  } catch (err) {
-    console.error('Funded modify error:', err);
-    return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message: 'Modification failed' } }, { status: 500 });
   }
 }

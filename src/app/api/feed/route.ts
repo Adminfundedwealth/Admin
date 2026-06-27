@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // last 24h
 
     // Fetch recent events from existing tables in parallel
-    const [usersRes, payoutsRes, kycRes, riskRes, ticketsRes] = await Promise.all([
+    const [usersRes, payoutsRes, kycRes, riskRes, ticketsRes, provisioningRes, challengeRes] = await Promise.all([
       supabase
         .from('users')
         .select('id, email, created_at')
@@ -51,6 +51,19 @@ export async function GET(request: NextRequest) {
         .select('id, subject, created_at')
         .gte('created_at', since)
         .order('created_at', { ascending: false })
+        .limit(10),
+      supabase
+        .from('provisioning_logs')
+        .select('id, order_id, status, error_message, created_at')
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(10),
+      supabase
+        .from('challenge_accounts')
+        .select('id, type, plan, status, updated_at')
+        .gte('updated_at', since)
+        .in('status', ['passed', 'failed'])
+        .order('updated_at', { ascending: false })
         .limit(10),
     ]);
 
@@ -120,6 +133,37 @@ export async function GET(request: NextRequest) {
         severity: 'info',
         entityId: row.id,
         entityType: 'ticket',
+      });
+    }
+
+    // Provisioning events (Terminal lifecycle)
+    for (const row of provisioningRes.data ?? []) {
+      const severity = row.status === 'failed' ? 'critical' : row.status === 'completed' ? 'success' : 'info';
+      events.push({
+        id: `prov-${row.id}`,
+        type: 'provisioning_update',
+        description: row.status === 'failed'
+          ? `Provisioning failed: ${row.error_message || 'Unknown error'}`
+          : `Order ${row.order_id?.slice(0, 8)?.toUpperCase()} → ${row.status}`,
+        actor: 'Terminal',
+        timestamp: row.created_at,
+        severity,
+        entityId: row.order_id,
+        entityType: 'provisioning',
+      });
+    }
+
+    // Challenge lifecycle events (Terminal)
+    for (const row of challengeRes.data ?? []) {
+      events.push({
+        id: `chal-${row.id}`,
+        type: row.status === 'passed' ? 'challenge_pass' : 'challenge_fail',
+        description: `Challenge ${row.id.slice(0, 8).toUpperCase()} ${row.status} (${row.plan || row.type})`,
+        actor: 'Terminal',
+        timestamp: row.updated_at,
+        severity: row.status === 'passed' ? 'success' : 'warning',
+        entityId: row.id,
+        entityType: 'challenge',
       });
     }
 

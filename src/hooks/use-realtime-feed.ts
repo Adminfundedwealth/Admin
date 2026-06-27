@@ -18,7 +18,10 @@ export type FeedEventType =
   | 'ticket_created'
   | 'risk_alert'
   | 'staff_login'
-  | 'staff_logout';
+  | 'staff_logout'
+  | 'provisioning_update'
+  | 'account_status'
+  | 'payment_event';
 
 export type FeedEventSeverity = 'info' | 'success' | 'warning' | 'critical';
 
@@ -129,6 +132,21 @@ export function useRealtimeFeed(options: UseRealtimeFeedOptions = {}): UseRealti
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'users' },
+          () => { fetchEvents(1); }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'provisioning_logs' },
+          () => { fetchEvents(1); }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'challenge_accounts' },
+          () => { fetchEvents(1); }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'notifications' },
           () => { fetchEvents(1); }
         )
         .subscribe((status) => {

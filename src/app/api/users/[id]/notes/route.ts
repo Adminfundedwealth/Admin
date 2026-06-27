@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getAuthenticatedStaff } from '@/lib/auth/get-staff';
 import { z } from 'zod';
 
 const noteSchema = z.object({
@@ -29,8 +30,16 @@ export async function POST(
 
     const supabase = createAdminClient();
 
-    // TODO: Get actual staff ID from session
-    const staffId = '00000000-0000-0000-0000-000000000000';
+    // Authenticate staff
+    const staff = await getAuthenticatedStaff();
+    if (!staff) {
+      return NextResponse.json(
+        { error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
+        { status: 401 }
+      );
+    }
+
+    const staffId = staff.id;
 
     const { data, error } = await supabase
       .from('user_notes')

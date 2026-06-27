@@ -2,18 +2,20 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Timeline, type TimelineEvent } from '@/components/shared/timeline';
 import { LoadingState } from '@/components/shared/loading-state';
 import { ErrorState } from '@/components/shared/error-state';
 import { formatCurrency, formatPercentage } from '@/lib/utils';
-import { CheckCircle, XCircle, RotateCcw, Clock, ArrowUpCircle, Archive, Undo2 } from 'lucide-react';
+import { CheckCircle, XCircle, RotateCcw, Clock, ArrowUpCircle, Archive, Undo2, ExternalLink } from 'lucide-react';
 
 interface ChallengeDetail {
   id: string;
   account_number: string;
   user_id: string;
+  purchase_order_id: string | null;
   challenge_type: string;
   phase: number;
   status: string;
@@ -185,6 +187,42 @@ export default function ChallengeDetailPage() {
             <div className="flex justify-between"><span className="text-muted-foreground">Started</span><span>{new Date(challenge.started_at).toLocaleDateString()}</span></div>
             {challenge.expires_at && <div className="flex justify-between"><span className="text-muted-foreground">Expires</span><span>{new Date(challenge.expires_at).toLocaleDateString()}</span></div>}
             {challenge.completed_at && <div className="flex justify-between"><span className="text-muted-foreground">Completed</span><span>{new Date(challenge.completed_at).toLocaleDateString()}</span></div>}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Origin & Linkage */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Customer</CardTitle>
+              <Link href={`/users/${challenge.user_id}`} className="text-xs text-primary hover:underline flex items-center gap-1">
+                View Profile <ExternalLink className="h-3 w-3" />
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-muted-foreground">User ID</span><span className="font-mono text-xs">{challenge.user_id}</span></div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Originating Purchase</CardTitle>
+              {challenge.purchase_order_id && (
+                <Link href={`/purchases/${challenge.purchase_order_id}`} className="text-xs text-primary hover:underline flex items-center gap-1">
+                  View Order <ExternalLink className="h-3 w-3" />
+                </Link>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {challenge.purchase_order_id ? (
+              <div className="flex justify-between"><span className="text-muted-foreground">Order ID</span><span className="font-mono text-xs">{challenge.purchase_order_id}</span></div>
+            ) : (
+              <p className="text-muted-foreground text-center py-2">No linked purchase order (may be manually assigned)</p>
+            )}
           </CardContent>
         </Card>
       </div>

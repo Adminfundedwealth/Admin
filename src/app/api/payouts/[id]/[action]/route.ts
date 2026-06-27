@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getAuthenticatedStaff } from '@/lib/auth/get-staff';
+import { sendPayoutApprovedEmail, sendPayoutRejectedEmail } from '@/lib/email/send-trader-email';
+import { notifyPayoutApproved, notifyPayoutRejected } from '@/lib/webhooks/outgoing';
 import { z } from 'zod';
 
 const VALID_TRANSITIONS: Record<string, Record<string, string>> = {
@@ -29,6 +32,12 @@ export async function POST(
       return NextResponse.json({ error: { code: 'INVALID_ACTION', message: `Unknown action: ${action}` } }, { status: 400 });
     }
 
+    // Authenticate staff
+    const staff = await getAuthenticatedStaff();
+    if (!staff) {
+      return NextResponse.json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } }, { status: 401 });
+    }
+
     const supabase = createAdminClient();
     const body = await request.json().catch(() => ({}));
 
@@ -43,7 +52,7 @@ export async function POST(
       return NextResponse.json({ error: { code: 'NOT_FOUND', message: 'Payout not found' } }, { status: 404 });
     }
 
-    const staffId = '00000000-0000-0000-0000-000000000000'; // TODO: from session
+    const staffId = staff.id;
     const now = new Date().toISOString();
     let newStatus = payout.status;
     let updates: Record<string, unknown> = { updated_at: now };
@@ -52,7 +61,6 @@ export async function POST(
       if (payout.status !== 'under_review') {
         return NextResponse.json({ error: { code: 'INVALID_TRANSITION', message: 'Can only approve payouts under review' } }, { status: 422 });
       }
-      // TODO: verify payouts.approve permission
       newStatus = 'approved';
       updates.status = 'approved';
       updates.approver_id = staffId;
@@ -111,6 +119,15 @@ export async function POST(
       ip_address: request.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1',
       device_info: { userAgent: request.headers.get('user-agent') || '' },
     });
+
+    // --- Email & Webhook notifications (non-blocking) ---
+    if (action === 'approve') {
+      sendPayoutApprovedEmail(payout.user_id, payout.calculated_payout || payout.requested_amount, 'INR').catch(() => {});
+      notifyPayoutApproved(params.id, payout.user_id, payout.calculated_payout || payout.requested_amount).catch(() => {});
+    } else if (action === 'reject') {
+      sendPayoutRejectedEmail(payout.user_id, payout.calculated_payout || payout.requested_amount, body.reason || 'Rejected').catch(() => {});
+      notifyPayoutRejected(params.id, payout.user_id, body.reason || 'Rejected').catch(() => {});
+    }
 
     return NextResponse.json({ data: { id: params.id, status: newStatus, action } });
   } catch (err) {

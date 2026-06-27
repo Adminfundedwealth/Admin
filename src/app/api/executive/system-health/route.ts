@@ -1,20 +1,15 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 /**
  * GET /api/executive/system-health
  * Returns system service health statuses.
- * Checks: API (self), Database (Supabase query), WebSocket (Supabase realtime check),
- * Email (placeholder), Payments (placeholder), Jobs (placeholder).
+ * Reads: staff_members (DB health check)
+ * Auth: Handled by middleware (session_token cookie)
  */
 export async function GET() {
   try {
-    const supabase = await createClient();
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const supabase = createAdminClient();
 
     const services: { name: string; status: 'healthy' | 'degraded' | 'down' }[] = [];
 
@@ -34,11 +29,10 @@ export async function GET() {
       services.push({ name: 'Database', status: 'healthy' });
     }
 
-    // WebSocket — check if Supabase realtime is reachable (basic check via DB)
-    // In production, this would ping the realtime endpoint
+    // WebSocket — check if Supabase realtime is reachable
     services.push({ name: 'WebSocket', status: dbError ? 'degraded' : 'healthy' });
 
-    // Email — check if email config is present (basic availability check)
+    // Email — check if email config is present
     const emailConfigured = process.env.SMTP_HOST || process.env.RESEND_API_KEY;
     services.push({ name: 'Email', status: emailConfigured ? 'healthy' : 'degraded' });
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { z } from 'zod';
+import { decrypt, isEncrypted } from '@/lib/security/encryption';
 
 const verifySchema = z.object({
   code: z.string().length(6).regex(/^\d{6}$/, 'Code must be 6 digits'),
@@ -76,10 +77,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Decrypt TOTP secret if encrypted
+    let totpSecret = staff.totp_secret;
+    if (isEncrypted(totpSecret)) {
+      totpSecret = decrypt(totpSecret);
+    }
+
     // Verify TOTP code
     const { TOTP } = await import('otpauth');
     const totp = new TOTP({
-      secret: staff.totp_secret,
+      secret: totpSecret,
       algorithm: 'SHA1',
       digits: 6,
       period: 30,
@@ -136,12 +143,21 @@ export async function POST(request: NextRequest) {
       .update({ failed_login_attempts: 0, locked_until: null })
       .eq('id', staff.id);
 
-    // Use Supabase Auth to sign in (creates proper auth session)
-    // In production, you'd use a custom JWT or Supabase custom token
-    // For now, record a successful login
+    // Create real session using SessionManager
+    const { sessionManager } = await import('@/lib/session/manager');
     const deviceFingerprint = request.headers.get('x-device-fingerprint') || 'unknown';
-    const isNewDevice = await checkNewDevice(supabase, staff.id, deviceFingerprint);
+    const { token } = await sessionManager.create({
+      staffId: staff.id,
+      deviceInfo: {
+        fingerprint: deviceFingerprint,
+        browser: request.headers.get('user-agent')?.split('/')[0] || 'unknown',
+        os: 'unknown',
+        ipAddress: getClientIP(request),
+      },
+    });
 
+    // Record login history
+    const isNewDevice = await checkNewDevice(supabase, staff.id, deviceFingerprint);
     await supabase.from('login_history').insert({
       staff_id: staff.id,
       ip_address: getClientIP(request),
@@ -152,13 +168,24 @@ export async function POST(request: NextRequest) {
       is_new_device: isNewDevice,
     });
 
-    return NextResponse.json({
+    // Set session cookie and return success
+    const response = NextResponse.json({
       success: true,
       staffId: staff.id,
       name: staff.name,
     });
+
+    response.cookies.set('session_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/',
+      maxAge: 8 * 60 * 60, // 8 hours
+    });
+
+    return response;
   } catch (err) {
-    console.error('2FA verify error:', err);
+    console.error('2FA verify error:', err instanceof Error ? err.message : 'Unknown');
     return NextResponse.json(
       { error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } },
       { status: 500 }
