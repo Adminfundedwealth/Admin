@@ -39,7 +39,7 @@ export default function LoginPage() {
         router.push(`/2fa?token=${data.challengeToken}`);
       } else if (data.requiresSetup2FA) {
         // First login — must set up 2FA
-        router.push(`/2fa-setup?staffId=${data.staffId}`);
+        router.push(`/2fa-setup?token=${data.setupToken}`);
       } else {
         // Login successful
         router.push('/executive');

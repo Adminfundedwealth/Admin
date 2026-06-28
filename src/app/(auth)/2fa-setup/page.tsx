@@ -18,7 +18,7 @@ export default function TwoFactorSetupPage() {
 function TwoFactorSetupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const staffId = searchParams.get('staffId');
+  const setupToken = searchParams.get('token');
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [secret, setSecret] = useState('');
   const [code, setCode] = useState('');
@@ -28,8 +28,8 @@ function TwoFactorSetupContent() {
 
   useEffect(() => {
     async function initSetup() {
-      if (!staffId) {
-        setError('Missing staff ID. Please log in again.');
+      if (!setupToken) {
+        setError('Missing setup token. Please log in again.');
         return;
       }
 
@@ -37,7 +37,7 @@ function TwoFactorSetupContent() {
         const res = await fetch('/api/auth/2fa/setup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ staffId }),
+          body: JSON.stringify({ setupToken }),
         });
         const data = await res.json();
 
@@ -55,7 +55,7 @@ function TwoFactorSetupContent() {
     }
 
     initSetup();
-  }, [staffId]);
+  }, [setupToken]);
 
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault();
@@ -68,7 +68,7 @@ function TwoFactorSetupContent() {
       const res = await fetch('/api/auth/2fa/setup/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, secret, staffId }),
+        body: JSON.stringify({ code, secret, setupToken }),
       });
 
       const data = await res.json();
