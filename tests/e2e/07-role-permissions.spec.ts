@@ -66,7 +66,7 @@ test.describe('Role Permissions', () => {
     await page.screenshot({ path: 'tests/e2e/screenshots/07-founder-settings.png' });
   });
 
-  test('API permission check — Founder can access all endpoints', async ({ request }) => {
+  test('API permission check — Founder can access all endpoints', async ({ request, page }) => {
     const endpoints = [
       '/api/executive/metrics',
       '/api/executive/queues',

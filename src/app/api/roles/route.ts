@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
       targetEntityId: role.id,
       newState: { name: parsed.data.name, permissions: parsed.data.permissions },
       ipAddress: 'server',
-      deviceInfo: 'api',
+      deviceInfo: { fingerprint: 'server', browser: 'api', os: 'server', ipAddress: 'server' },
     });
 
     return NextResponse.json({ data: role }, { status: 201 });

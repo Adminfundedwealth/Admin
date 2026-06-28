@@ -12,23 +12,27 @@ export async function GET(request: NextRequest) {
   const now = new Date().toISOString();
   
   // Remove expired sessions
-  const { count: expiredCount } = await supabase
+  const { data: expiredData } = await supabase
     .from('staff_sessions')
     .delete()
     .lt('expires_at', now)
-    .select('id', { count: 'exact', head: true });
+    .select('id');
   
+  const expiredCount = expiredData?.length || 0;
+
   // Invalidate idle sessions (30 min)
   const idleCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-  const { count: idleCount } = await supabase
+  const { data: idleData } = await supabase
     .from('staff_sessions')
     .update({ invalidated_at: now })
     .lt('last_activity', idleCutoff)
     .is('invalidated_at', null)
-    .select('id', { count: 'exact', head: true });
+    .select('id');
+
+  const idleCount = idleData?.length || 0;
   
   return NextResponse.json({
     success: true,
-    cleaned: { expired: expiredCount || 0, idle: idleCount || 0 },
+    cleaned: { expired: expiredCount, idle: idleCount },
   });
 }
