@@ -40,6 +40,9 @@ export default function LoginPage() {
       } else if (data.requiresSetup2FA) {
         // First login — must set up 2FA
         router.push(`/2fa-setup?token=${data.setupToken}`);
+      } else if (data.success) {
+        // Login successful — session created
+        router.push('/executive');
       } else {
         // Login successful
         router.push('/executive');
