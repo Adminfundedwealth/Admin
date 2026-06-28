@@ -6,6 +6,15 @@ const nextConfig = {
       bodySizeLimit: '2mb',
     },
   },
+  async redirects() {
+    return [
+      {
+        source: '/dashboard',
+        destination: '/executive',
+        permanent: false,
+      },
+    ];
+  },
   async headers() {
     return [
       {
