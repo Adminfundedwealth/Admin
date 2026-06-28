@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,6 +8,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 export default function TwoFactorSetupPage() {
+  return (
+    <Suspense fallback={<Card className="w-full"><CardContent className="p-6 text-center"><p className="text-muted-foreground">Loading...</p></CardContent></Card>}>
+      <TwoFactorSetupContent />
+    </Suspense>
+  );
+}
+
+function TwoFactorSetupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const staffId = searchParams.get('staffId');
