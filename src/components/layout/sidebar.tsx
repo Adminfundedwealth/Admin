@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { sidebarNavigation } from '@/config/navigation';
@@ -42,8 +41,8 @@ export function Sidebar({ className }: SidebarProps) {
       {/* Logo */}
       <div className="h-12 flex items-center px-4 border-b shrink-0">
         <div className="flex items-center gap-2">
-          <Image
-            src="/logo.svg"
+          <img
+            src="/logo.png"
             alt="FundedWealth Logo"
             width={24}
             height={24}
