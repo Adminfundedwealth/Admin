@@ -1,6 +1,8 @@
 -- ============================================================
 -- Migration: Affiliates, Support, Marketing, Config, Certificates
--- Task 6: Remaining domain tables
+-- Admin-owned operational tables only.
+-- References Main Site "users" via UUID (no hard FK to avoid coupling).
+-- Does NOT alter any Main Site or Terminal table.
 -- ============================================================
 
 -- ============================================================
@@ -23,7 +25,7 @@ CREATE TABLE commission_structures (
 
 CREATE TABLE affiliates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES users(id),
+    user_id UUID,                       -- References Main Site users.id (soft FK)
     name VARCHAR(200) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     affiliate_code VARCHAR(50) UNIQUE NOT NULL,
@@ -51,7 +53,7 @@ CREATE INDEX idx_affiliates_user ON affiliates(user_id) WHERE user_id IS NOT NUL
 CREATE TABLE referrals (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     affiliate_id UUID NOT NULL REFERENCES affiliates(id),
-    referred_user_id UUID NOT NULL REFERENCES users(id),
+    referred_user_id UUID NOT NULL,     -- References Main Site users.id (soft FK)
     purchase_id UUID,
     purchase_amount DECIMAL(15,2),
     converted BOOLEAN DEFAULT FALSE,
@@ -89,7 +91,7 @@ CREATE INDEX idx_commissions_status ON commissions(status, created_at DESC);
 CREATE TABLE support_tickets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     ticket_number VARCHAR(20) UNIQUE NOT NULL,
-    user_id UUID NOT NULL REFERENCES users(id),
+    user_id UUID NOT NULL,              -- References Main Site users.id (soft FK)
     subject VARCHAR(255) NOT NULL,
     category VARCHAR(50) NOT NULL,
     priority VARCHAR(10) NOT NULL 
@@ -225,16 +227,16 @@ CREATE INDEX idx_config_current ON configurations(category, key) WHERE is_curren
 CREATE INDEX idx_config_history ON configurations(category, key, version DESC);
 
 -- ============================================================
--- Certificates
+-- Certificates (Admin issues certificates referencing platform data)
 -- ============================================================
 
 CREATE TABLE certificates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     certificate_number VARCHAR(50) UNIQUE NOT NULL,
-    user_id UUID NOT NULL REFERENCES users(id),
+    user_id UUID NOT NULL,              -- References Main Site users.id (soft FK)
     type VARCHAR(20) NOT NULL CHECK (type IN ('challenge_completion', 'funded_trader')),
-    challenge_account_id UUID REFERENCES challenge_accounts(id),
-    funded_account_id UUID REFERENCES funded_accounts(id),
+    challenge_account_id UUID,          -- References Terminal challenge_accounts.id (soft FK)
+    funded_account_id UUID,             -- References Terminal funded_accounts.id (soft FK)
     trader_name VARCHAR(200) NOT NULL,
     details JSONB NOT NULL,
     pdf_storage_path TEXT,
@@ -339,11 +341,3 @@ CREATE TRIGGER coupon_codes_updated_at
 CREATE TRIGGER announcements_updated_at
     BEFORE UPDATE ON announcements FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
-
--- ============================================================
--- Add referred_by FK now that affiliates table exists
--- ============================================================
-
-ALTER TABLE users 
-    ADD CONSTRAINT fk_users_referred_by 
-    FOREIGN KEY (referred_by) REFERENCES affiliates(id);

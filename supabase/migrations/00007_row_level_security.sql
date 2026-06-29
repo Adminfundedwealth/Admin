@@ -1,67 +1,35 @@
 -- ============================================================
 -- Migration: Row Level Security Policies
--- Task 7: Enable RLS and create permission-based policies
--- Enforces RBAC at the database level via Supabase
+-- ONLY applies RLS to Admin-owned tables.
+-- Does NOT touch Main Site or Terminal tables.
+-- Admin API uses service_role key (bypasses RLS), but RLS is
+-- enabled as defense-in-depth for anon/authenticated access.
 -- ============================================================
 
 -- ============================================================
--- Helper function: Check if current user has a specific permission
--- Used by all RLS policies to enforce granular access control
+-- Helper function: Check staff permission via session token
+-- Admin does NOT use Supabase Auth (auth.uid()). Instead,
+-- these policies protect against direct anon/authenticated access.
+-- Admin API routes use service_role key which bypasses RLS.
 -- ============================================================
 
-CREATE OR REPLACE FUNCTION has_permission(required_permission TEXT)
-RETURNS BOOLEAN AS $$
-BEGIN
-    -- Check if the current authenticated user has the required permission
-    -- through any of their assigned roles
-    RETURN EXISTS (
-        SELECT 1 
-        FROM staff_role_assignments sra
-        JOIN role_permissions rp ON rp.role_id = sra.role_id
-        WHERE sra.staff_id = auth.uid()
-        AND rp.permission = required_permission
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
-
--- Helper: Check if user has any of the listed permissions
-CREATE OR REPLACE FUNCTION has_any_permission(required_permissions TEXT[])
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 
-        FROM staff_role_assignments sra
-        JOIN role_permissions rp ON rp.role_id = sra.role_id
-        WHERE sra.staff_id = auth.uid()
-        AND rp.permission = ANY(required_permissions)
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
-
--- Helper: Check if current user is Founder or Co-Founder (full access)
-CREATE OR REPLACE FUNCTION is_full_access_role()
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 
-        FROM staff_role_assignments sra
-        JOIN roles r ON r.id = sra.role_id
-        WHERE sra.staff_id = auth.uid()
-        AND r.name IN ('Founder', 'Co-Founder')
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
-
 -- ============================================================
--- Enable RLS on all data tables
+-- Enable RLS on Admin-owned tables ONLY
 -- ============================================================
 
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE challenge_accounts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE funded_accounts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE trades ENABLE ROW LEVEL SECURITY;
-ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE staff_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE role_permissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE staff_role_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE staff_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE login_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE staff_devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_notes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE challenge_timeline ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payout_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payout_status_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE kyc_submissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE kyc_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE risk_alerts ENABLE ROW LEVEL SECURITY;
@@ -75,333 +43,133 @@ ALTER TABLE coupon_codes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE configurations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE certificates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE audit_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_notes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE challenge_timeline ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payout_status_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE commission_structures ENABLE ROW LEVEL SECURITY;
+ALTER TABLE system_health_checks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE background_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE data_exports ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================
--- Users table policies
+-- Default deny policy for all Admin tables
+-- Only service_role (used by Admin API) can access these tables.
+-- No anon or authenticated Supabase user should read Admin data.
 -- ============================================================
 
-CREATE POLICY "staff_select_users" ON users
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['users.view', 'users.edit', 'users.ban', 'users.delete'])
-    );
+-- Staff Members
+CREATE POLICY "deny_anon_staff_members" ON staff_members
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_update_users" ON users
-    FOR UPDATE USING (
-        is_full_access_role() OR has_any_permission(ARRAY['users.edit', 'users.ban'])
-    );
+-- Roles
+CREATE POLICY "deny_anon_roles" ON roles
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_delete_users" ON users
-    FOR DELETE USING (
-        is_full_access_role() OR has_permission('users.delete')
-    );
+-- Role Permissions
+CREATE POLICY "deny_anon_role_permissions" ON role_permissions
+    FOR ALL USING (FALSE);
 
--- ============================================================
--- Challenge Accounts policies
--- ============================================================
+-- Staff Role Assignments
+CREATE POLICY "deny_anon_staff_role_assignments" ON staff_role_assignments
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_select_challenges" ON challenge_accounts
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['challenges.view', 'challenges.manage'])
-    );
+-- Staff Sessions
+CREATE POLICY "deny_anon_staff_sessions" ON staff_sessions
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_update_challenges" ON challenge_accounts
-    FOR UPDATE USING (
-        is_full_access_role() OR has_permission('challenges.manage')
-    );
+-- Login History
+CREATE POLICY "deny_anon_login_history" ON login_history
+    FOR ALL USING (FALSE);
 
--- ============================================================
--- Funded Accounts policies
--- ============================================================
+-- Staff Devices
+CREATE POLICY "deny_anon_staff_devices" ON staff_devices
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_select_funded" ON funded_accounts
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['challenges.view', 'challenges.manage'])
-    );
+-- Audit Records
+CREATE POLICY "deny_anon_audit_records" ON audit_records
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_update_funded" ON funded_accounts
-    FOR UPDATE USING (
-        is_full_access_role() OR has_permission('challenges.manage')
-    );
+-- Notifications
+CREATE POLICY "deny_anon_notifications" ON notifications
+    FOR ALL USING (FALSE);
 
--- ============================================================
--- Trades policies
--- ============================================================
+-- User Notes
+CREATE POLICY "deny_anon_user_notes" ON user_notes
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_select_trades" ON trades
-    FOR SELECT USING (
-        is_full_access_role() OR has_permission('trades.view')
-    );
+-- Challenge Timeline
+CREATE POLICY "deny_anon_challenge_timeline" ON challenge_timeline
+    FOR ALL USING (FALSE);
 
--- ============================================================
--- Orders policies
--- ============================================================
+-- Payout Requests
+CREATE POLICY "deny_anon_payout_requests" ON payout_requests
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_select_orders" ON orders
-    FOR SELECT USING (
-        is_full_access_role() OR has_permission('trades.view')
-    );
+-- Payout Status History
+CREATE POLICY "deny_anon_payout_status_history" ON payout_status_history
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_update_orders" ON orders
-    FOR UPDATE USING (
-        is_full_access_role() OR has_permission('trades.view')
-    );
-
--- ============================================================
--- Payout Requests policies
--- ============================================================
-
-CREATE POLICY "staff_select_payouts" ON payout_requests
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['payouts.view', 'payouts.approve', 'payouts.reject'])
-    );
-
-CREATE POLICY "staff_update_payouts" ON payout_requests
-    FOR UPDATE USING (
-        is_full_access_role() OR has_any_permission(ARRAY['payouts.approve', 'payouts.reject'])
-    );
-
--- ============================================================
--- Payout Status History policies (read-only for staff)
--- ============================================================
-
-CREATE POLICY "staff_select_payout_history" ON payout_status_history
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['payouts.view', 'payouts.approve', 'payouts.reject'])
-    );
-
-CREATE POLICY "staff_insert_payout_history" ON payout_status_history
-    FOR INSERT WITH CHECK (
-        is_full_access_role() OR has_any_permission(ARRAY['payouts.approve', 'payouts.reject'])
-    );
-
--- ============================================================
--- KYC Submissions policies
--- ============================================================
-
-CREATE POLICY "staff_select_kyc" ON kyc_submissions
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['kyc.view', 'kyc.approve', 'kyc.reject'])
-    );
-
-CREATE POLICY "staff_update_kyc" ON kyc_submissions
-    FOR UPDATE USING (
-        is_full_access_role() OR has_any_permission(ARRAY['kyc.approve', 'kyc.reject'])
-    );
+-- KYC Submissions
+CREATE POLICY "deny_anon_kyc_submissions" ON kyc_submissions
+    FOR ALL USING (FALSE);
 
 -- KYC Documents
-CREATE POLICY "staff_select_kyc_docs" ON kyc_documents
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['kyc.view', 'kyc.approve', 'kyc.reject'])
-    );
+CREATE POLICY "deny_anon_kyc_documents" ON kyc_documents
+    FOR ALL USING (FALSE);
 
--- ============================================================
--- Risk Alerts policies
--- ============================================================
+-- Risk Alerts
+CREATE POLICY "deny_anon_risk_alerts" ON risk_alerts
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_select_risk" ON risk_alerts
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['risk.view', 'risk.manage'])
-    );
-
-CREATE POLICY "staff_update_risk" ON risk_alerts
-    FOR UPDATE USING (
-        is_full_access_role() OR has_permission('risk.manage')
-    );
-
-CREATE POLICY "staff_insert_risk" ON risk_alerts
-    FOR INSERT WITH CHECK (
-        is_full_access_role() OR has_permission('risk.manage')
-    );
-
--- ============================================================
--- Affiliates policies
--- ============================================================
-
-CREATE POLICY "staff_select_affiliates" ON affiliates
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['affiliates.view', 'affiliates.manage'])
-    );
-
-CREATE POLICY "staff_update_affiliates" ON affiliates
-    FOR UPDATE USING (
-        is_full_access_role() OR has_permission('affiliates.manage')
-    );
+-- Affiliates
+CREATE POLICY "deny_anon_affiliates" ON affiliates
+    FOR ALL USING (FALSE);
 
 -- Referrals
-CREATE POLICY "staff_select_referrals" ON referrals
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['affiliates.view', 'affiliates.manage'])
-    );
+CREATE POLICY "deny_anon_referrals" ON referrals
+    FOR ALL USING (FALSE);
 
 -- Commissions
-CREATE POLICY "staff_select_commissions" ON commissions
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['affiliates.view', 'affiliates.manage'])
-    );
+CREATE POLICY "deny_anon_commissions" ON commissions
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_update_commissions" ON commissions
-    FOR UPDATE USING (
-        is_full_access_role() OR has_permission('affiliates.manage')
-    );
-
-CREATE POLICY "staff_insert_commissions" ON commissions
-    FOR INSERT WITH CHECK (
-        is_full_access_role() OR has_permission('affiliates.manage')
-    );
-
--- ============================================================
--- Support Tickets policies
--- ============================================================
-
-CREATE POLICY "staff_select_support" ON support_tickets
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['support.view', 'support.manage'])
-    );
-
-CREATE POLICY "staff_update_support" ON support_tickets
-    FOR UPDATE USING (
-        is_full_access_role() OR has_permission('support.manage')
-    );
+-- Support Tickets
+CREATE POLICY "deny_anon_support_tickets" ON support_tickets
+    FOR ALL USING (FALSE);
 
 -- Ticket Messages
-CREATE POLICY "staff_select_ticket_messages" ON ticket_messages
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['support.view', 'support.manage'])
-    );
+CREATE POLICY "deny_anon_ticket_messages" ON ticket_messages
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_insert_ticket_messages" ON ticket_messages
-    FOR INSERT WITH CHECK (
-        is_full_access_role() OR has_permission('support.manage')
-    );
+-- Promotions
+CREATE POLICY "deny_anon_promotions" ON promotions
+    FOR ALL USING (FALSE);
 
--- ============================================================
--- Marketing policies (promotions, coupons, announcements)
--- ============================================================
+-- Coupon Codes
+CREATE POLICY "deny_anon_coupon_codes" ON coupon_codes
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_select_promotions" ON promotions
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['marketing.view', 'marketing.manage'])
-    );
+-- Announcements
+CREATE POLICY "deny_anon_announcements" ON announcements
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_all_promotions" ON promotions
-    FOR ALL USING (
-        is_full_access_role() OR has_permission('marketing.manage')
-    );
+-- Configurations
+CREATE POLICY "deny_anon_configurations" ON configurations
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_select_coupons" ON coupon_codes
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['marketing.view', 'marketing.manage'])
-    );
+-- Certificates
+CREATE POLICY "deny_anon_certificates" ON certificates
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_all_coupons" ON coupon_codes
-    FOR ALL USING (
-        is_full_access_role() OR has_permission('marketing.manage')
-    );
+-- Commission Structures
+CREATE POLICY "deny_anon_commission_structures" ON commission_structures
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_select_announcements" ON announcements
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['marketing.view', 'marketing.manage'])
-    );
+-- System Health Checks
+CREATE POLICY "deny_anon_system_health_checks" ON system_health_checks
+    FOR ALL USING (FALSE);
 
-CREATE POLICY "staff_all_announcements" ON announcements
-    FOR ALL USING (
-        is_full_access_role() OR has_permission('marketing.manage')
-    );
+-- Background Jobs
+CREATE POLICY "deny_anon_background_jobs" ON background_jobs
+    FOR ALL USING (FALSE);
 
--- ============================================================
--- Configuration policies
--- ============================================================
-
-CREATE POLICY "staff_select_config" ON configurations
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['settings.view', 'settings.edit'])
-    );
-
-CREATE POLICY "staff_insert_config" ON configurations
-    FOR INSERT WITH CHECK (
-        is_full_access_role() OR has_permission('settings.edit')
-    );
-
-CREATE POLICY "staff_update_config" ON configurations
-    FOR UPDATE USING (
-        is_full_access_role() OR has_permission('settings.edit')
-    );
-
--- ============================================================
--- Certificates policies
--- ============================================================
-
-CREATE POLICY "staff_select_certificates" ON certificates
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['certificates.view', 'certificates.manage'])
-    );
-
-CREATE POLICY "staff_all_certificates" ON certificates
-    FOR ALL USING (
-        is_full_access_role() OR has_permission('certificates.manage')
-    );
-
--- ============================================================
--- Audit Records policies (SELECT only - immutable table)
--- ============================================================
-
-CREATE POLICY "staff_select_audit" ON audit_records
-    FOR SELECT USING (
-        is_full_access_role() OR has_permission('audit.view')
-    );
-
--- Allow any authenticated staff to INSERT audit records
--- (needed for audit logging from any operation)
-CREATE POLICY "staff_insert_audit" ON audit_records
-    FOR INSERT WITH CHECK (TRUE);
-
--- ============================================================
--- Notifications policies (staff sees only their own)
--- ============================================================
-
-CREATE POLICY "staff_own_notifications" ON notifications
-    FOR SELECT USING (
-        recipient_id = auth.uid()
-    );
-
-CREATE POLICY "staff_update_own_notifications" ON notifications
-    FOR UPDATE USING (
-        recipient_id = auth.uid()
-    );
-
--- System can insert notifications for any recipient
-CREATE POLICY "staff_insert_notifications" ON notifications
-    FOR INSERT WITH CHECK (TRUE);
-
--- ============================================================
--- User Notes policies
--- ============================================================
-
-CREATE POLICY "staff_select_user_notes" ON user_notes
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['users.view', 'users.edit'])
-    );
-
-CREATE POLICY "staff_insert_user_notes" ON user_notes
-    FOR INSERT WITH CHECK (
-        is_full_access_role() OR has_any_permission(ARRAY['users.view', 'users.edit'])
-    );
-
--- ============================================================
--- Challenge Timeline policies
--- ============================================================
-
-CREATE POLICY "staff_select_challenge_timeline" ON challenge_timeline
-    FOR SELECT USING (
-        is_full_access_role() OR has_any_permission(ARRAY['challenges.view', 'challenges.manage'])
-    );
-
-CREATE POLICY "staff_insert_challenge_timeline" ON challenge_timeline
-    FOR INSERT WITH CHECK (
-        is_full_access_role() OR has_permission('challenges.manage')
-    );
+-- Data Exports
+CREATE POLICY "deny_anon_data_exports" ON data_exports
+    FOR ALL USING (FALSE);
