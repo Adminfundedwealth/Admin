@@ -22,6 +22,13 @@ interface OrderResult {
   payment_method: string | null;
   utr_reference: string | null;
   provisioning_status: string | null;
+  provisioned_at: string | null;
+  challenge_account_id: string | null;
+  trading_account_id: string | null;
+  provisioned_plan: string | null;
+  provisioned_account_size: number | null;
+  provisioned_challenge_type: string | null;
+  provisioned_account_status: string | null;
   created_at: string;
   can_provision: boolean;
 }
@@ -44,6 +51,20 @@ interface Notification {
   id: number;
   type: 'success' | 'error' | 'info';
   message: string;
+}
+
+interface ProvisionedOrderDetails {
+  order_id: string;
+  user_email: string;
+  user_name: string;
+  challenge_account_id: string | null;
+  trading_account_id: string | null;
+  provisioning_status: string;
+  plan: string | null;
+  account_size: number | null;
+  challenge_type: string | null;
+  status: string | null;
+  provisioned_at: string | null;
 }
 
 const statusColors: Record<string, string> = {
@@ -89,6 +110,7 @@ export default function ManualProvisionPage() {
   // Result state
   const [provisionResult, setProvisionResult] = useState<ProvisionResult | null>(null);
   const [resending, setResending] = useState(false);
+  const [viewProvisionedOrder, setViewProvisionedOrder] = useState<ProvisionedOrderDetails | null>(null);
 
   // Notifications
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -110,7 +132,7 @@ export default function ManualProvisionPage() {
 
   async function handleSearch() {
     if (!search || search.length < 3) {
-      setSearchError('Enter at least 3 characters (email or UTR reference)');
+      setSearchError('Enter at least 3 characters (email, order ID, or UTR reference)');
       return;
     }
     setLoading(true);
@@ -142,7 +164,7 @@ export default function ManualProvisionPage() {
   function openProvisionModal(order: OrderResult) {
     setModalOrder(order);
     setUtrInput(order.utr_reference || '');
-    setAccountSizeInput(order.account_size ? String(order.account_size) : '');
+    setAccountSizeInput(order.account_size ? String(order.account_size) : '25000');
     setPlanInput(order.plan_type || '');
     setChallengeType('evaluation');
     setNotesInput('');
@@ -162,6 +184,10 @@ export default function ManualProvisionPage() {
       setProvisionError('UTR reference is required for verification');
       return;
     }
+    if (!accountSizeInput || Number(accountSizeInput) <= 0) {
+      setProvisionError('Account Size is required');
+      return;
+    }
 
     setProvisioning(true);
     setProvisionError('');
@@ -174,13 +200,22 @@ export default function ManualProvisionPage() {
           order_id: modalOrder.id,
           utr_reference: utrInput.trim(),
           challenge_type: challengeType,
-          account_size: accountSizeInput ? Number(accountSizeInput) : undefined,
+          account_size: Number(accountSizeInput),
           plan: planInput || undefined,
           notes: notesInput || undefined,
         }),
       });
 
       const json = await res.json();
+
+      // Handle already-provisioned response — show existing details
+      if (json.already_provisioned) {
+        setModalOrder(null);
+        setViewProvisionedOrder(json.data);
+        addNotification('info', `Order already provisioned. Showing existing account details.`);
+        return;
+      }
+
       if (!res.ok) {
         setProvisionError(json.error?.message || 'Provisioning failed');
         addNotification('error', json.error?.message || 'Provisioning failed');
@@ -293,7 +328,7 @@ Please change your password after first login.`;
           Manual Provision
         </h1>
         <p className="text-muted-foreground mt-1">
-          Manually provision trading accounts for verified paid users (pre-launch orders)
+          Provision trading accounts for verified paid users. Search by email, order ID, or UTR — all paid orders shown regardless of purchase date.
         </p>
       </div>
 
@@ -302,7 +337,7 @@ Please change your password after first login.`;
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Search className="h-4 w-4" />
-            Search by Email or UTR
+            Search by Email, Order ID, or UTR
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -312,9 +347,9 @@ Please change your password after first login.`;
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              placeholder="Enter trader email or UTR reference..."
+              placeholder="Enter trader email, order ID, or UTR reference..."
               className="flex-1 px-3 py-2 border rounded-md text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-              aria-label="Search by email or UTR"
+              aria-label="Search by email, order ID, or UTR"
             />
             <button
               onClick={handleSearch}
@@ -414,9 +449,25 @@ Please change your password after first login.`;
                             </button>
                           )}
                           {order.provisioning_status === 'completed' && (
-                            <span className="text-xs text-green-600 font-medium flex items-center gap-0.5">
-                              <CheckCircle2 className="h-3 w-3" /> Done
-                            </span>
+                            <button
+                              onClick={() => setViewProvisionedOrder({
+                                order_id: order.id,
+                                user_email: order.user_email,
+                                user_name: order.user_name,
+                                challenge_account_id: order.challenge_account_id,
+                                trading_account_id: order.trading_account_id,
+                                provisioning_status: order.provisioning_status!,
+                                plan: order.provisioned_plan,
+                                account_size: order.provisioned_account_size,
+                                challenge_type: order.provisioned_challenge_type,
+                                status: order.provisioned_account_status,
+                                provisioned_at: order.provisioned_at,
+                              })}
+                              className="px-2.5 py-1 border border-green-300 text-green-700 rounded text-xs font-medium hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/30 flex items-center gap-1"
+                              title="View provisioned account details"
+                            >
+                              <CheckCircle2 className="h-3 w-3" /> Account
+                            </button>
                           )}
                         </div>
                       </td>
@@ -506,6 +557,105 @@ Please change your password after first login.`;
                 </button>
               </div>
             )}
+            {viewOrder.provisioning_status === 'completed' && (
+              <div className="mt-4 pt-4 border-t">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm mb-3">
+                  <div>
+                    <span className="text-xs text-muted-foreground block">Challenge Account ID</span>
+                    <span className="font-mono text-xs">{viewOrder.challenge_account_id || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground block">Provisioned Plan</span>
+                    <span className="font-medium">{viewOrder.provisioned_plan || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground block">Provisioned Size</span>
+                    <span className="font-medium">{viewOrder.provisioned_account_size ? `₹${viewOrder.provisioned_account_size.toLocaleString()}` : '—'}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-green-600 font-medium flex items-center gap-1">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Already provisioned{viewOrder.provisioned_at ? ` on ${new Date(viewOrder.provisioned_at).toLocaleString()}` : ''}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Existing Provisioned Account Details */}
+      {viewProvisionedOrder && (
+        <Card className="border-green-300 dark:border-green-700 bg-green-50/50 dark:bg-green-950/20">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2 text-green-700 dark:text-green-400">
+              <CheckCircle2 className="h-5 w-5" />
+              Existing Provisioned Account
+            </CardTitle>
+            <button onClick={() => setViewProvisionedOrder(null)} className="text-muted-foreground hover:text-foreground">
+              <X className="h-4 w-4" />
+            </button>
+          </CardHeader>
+          <CardContent>
+            <div className="bg-white dark:bg-gray-900 border rounded-lg p-4 space-y-3">
+              <p className="text-sm text-muted-foreground">This order has already been provisioned. No duplicate account will be created.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-xs text-muted-foreground block">User</span>
+                  <span className="font-medium">{viewProvisionedOrder.user_name}</span>
+                  <span className="text-xs text-muted-foreground ml-1">({viewProvisionedOrder.user_email})</span>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground block">Order ID</span>
+                  <span className="font-mono text-xs">{viewProvisionedOrder.order_id}</span>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground block">Challenge Account ID</span>
+                  <span className="font-mono text-xs">{viewProvisionedOrder.challenge_account_id || '—'}</span>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground block">Trading Account ID</span>
+                  <span className="font-mono text-xs">{viewProvisionedOrder.trading_account_id || '—'}</span>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground block">Plan</span>
+                  <span className="font-medium">{viewProvisionedOrder.plan || '—'}</span>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground block">Account Size</span>
+                  <span className="font-medium">{viewProvisionedOrder.account_size ? `₹${viewProvisionedOrder.account_size.toLocaleString()}` : '—'}</span>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground block">Challenge Type</span>
+                  <span className="font-medium">{viewProvisionedOrder.challenge_type || '—'}</span>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground block">Account Status</span>
+                  <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                    viewProvisionedOrder.status === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-800'
+                  }`}>
+                    {viewProvisionedOrder.status || '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground block">Provisioning Status</span>
+                  <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${provStatusColors[viewProvisionedOrder.provisioning_status] || 'bg-gray-100 text-gray-800'}`}>
+                    {viewProvisionedOrder.provisioning_status}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground block">Provisioned At</span>
+                  <span className="font-medium">{viewProvisionedOrder.provisioned_at ? new Date(viewProvisionedOrder.provisioned_at).toLocaleString() : '—'}</span>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4">
+              <button
+                onClick={() => setViewProvisionedOrder(null)}
+                className="px-4 py-2 border rounded-md text-sm font-medium text-muted-foreground hover:bg-accent"
+              >
+                Close
+              </button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -647,12 +797,12 @@ Please change your password after first login.`;
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-muted-foreground">Account Size (₹)</label>
+                    <label className="text-xs font-medium text-muted-foreground">Account Size (₹) *</label>
                     <input
                       type="number"
                       value={accountSizeInput}
                       onChange={(e) => setAccountSizeInput(e.target.value)}
-                      placeholder={String(modalOrder.account_size || 25000)}
+                      placeholder="e.g. 25000, 50000, 100000"
                       className="w-full mt-1 px-3 py-2 border rounded-md text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                   </div>

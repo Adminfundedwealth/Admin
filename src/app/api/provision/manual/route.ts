@@ -11,13 +11,14 @@ import { randomBytes } from 'crypto';
 /**
  * POST /api/provision/manual
  *
- * Manual Provision MVP — provisions a trading account for a verified paid user.
+ * Manual Provision — provisions a trading account for a verified paid user.
+ * No date restriction: orders paid weeks/months ago are eligible.
  *
  * Flow:
  * 1. Validate input (order_id required, optional overrides)
  * 2. Verify order exists and is paid (status: completed/active/paid)
- * 3. Verify UTR reference matches
- * 4. Check not already provisioned
+ * 3. Verify UTR reference matches (if order has one on record)
+ * 4. Check duplicate protection — if already provisioned, return existing account details
  * 5. Generate login ID + password
  * 6. Create challenge_account entry
  * 7. Update provisioning_logs
@@ -31,8 +32,8 @@ import { randomBytes } from 'crypto';
 const ManualProvisionSchema = z.object({
   order_id: z.string().min(1, 'Order ID is required'),
   utr_reference: z.string().min(1, 'UTR reference is required for verification'),
-  challenge_type: z.enum(['evaluation', 'express', 'stellar']).default('evaluation'),
-  account_size: z.number().positive().optional(),
+  challenge_type: z.enum(['evaluation', 'express', 'stellar']),
+  account_size: z.number().positive(),
   plan: z.string().optional(),
   notes: z.string().max(500).optional(),
 });
@@ -104,18 +105,56 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 6. Check if already provisioned
+    // 6. Check if already provisioned — return existing details instead of blocking
     const { data: existingProvision } = await supabase
       .from('provisioning_logs')
-      .select('id, status, trading_account_id, challenge_account_id')
+      .select('id, status, trading_account_id, challenge_account_id, plan, payment_ref, started_at, completed_at')
       .eq('order_id', order_id)
       .in('status', ['completed', 'processing'])
       .limit(1);
 
     if (existingProvision && existingProvision.length > 0) {
+      const prov = existingProvision[0];
+      // Fetch existing challenge account details
+      let existingAccount: any = null;
+      if (prov.challenge_account_id) {
+        const { data: account } = await supabase
+          .from('challenge_accounts')
+          .select('*')
+          .eq('id', prov.challenge_account_id)
+          .single();
+        existingAccount = account;
+      }
+
+      // Resolve user for display
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id, email, first_name, last_name')
+        .eq('id', order.user_id)
+        .single();
+
+      const userName = existingUser
+        ? [existingUser.first_name, existingUser.last_name].filter(Boolean).join(' ') || 'Trader'
+        : 'Trader';
+
       return NextResponse.json(
-        { error: { code: 'ALREADY_PROVISIONED', message: 'This order has already been provisioned or is currently being processed.' } },
-        { status: 409 }
+        {
+          already_provisioned: true,
+          data: {
+            order_id,
+            user_email: existingUser?.email || '',
+            user_name: userName,
+            challenge_account_id: prov.challenge_account_id,
+            trading_account_id: prov.trading_account_id,
+            provisioning_status: prov.status,
+            plan: prov.plan || existingAccount?.plan || null,
+            account_size: existingAccount?.initial_balance || null,
+            challenge_type: existingAccount?.type || null,
+            status: existingAccount?.status || null,
+            provisioned_at: prov.completed_at || prov.started_at,
+          },
+        },
+        { status: 200 }
       );
     }
 
@@ -136,7 +175,7 @@ export async function POST(request: NextRequest) {
     // 8. Generate credentials
     const loginId = generateLoginId();
     const password = generatePassword();
-    const finalAccountSize = account_size || order.account_size || 25000;
+    const finalAccountSize = account_size;
     const finalPlan = plan || order.plan_type || challenge_type;
 
     // 9. Create challenge_account (the trading account record)
@@ -274,12 +313,19 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/provision/manual
- * Search for pending paid orders eligible for manual provisioning.
- * Supports search by email or UTR reference.
+ * Search for paid orders eligible for manual provisioning.
+ * Supports search by email (full or partial), UTR reference, or order ID.
+ *
+ * Search strategy:
+ *   1. If input contains '@' → search users by email → find their orders
+ *   2. If not → try as UTR reference AND also try as partial email (fallback)
+ *   3. No status filter on search — show ALL orders, mark which can be provisioned
+ *
+ * This ensures results appear regardless of user_id format (UUID vs clerk_id).
  */
 export async function GET(request: NextRequest) {
   try {
-    const { error: authError } = await requireFounderInHandler();
+    const { staff, error: authError } = await requireFounderInHandler();
     if (authError) return authError;
 
     const supabase = createAdminClient();
@@ -293,51 +339,77 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Search by email: first find user, then find their orders
     let orderResults: any[] = [];
+    let userMap: Record<string, any> = {};
 
-    // Check if search looks like an email
-    if (search.includes('@')) {
+    // Strategy 1: Search users by email (if contains @ or looks like email fragment)
+    const isEmailLike = search.includes('@') || search.includes('.');
+    if (isEmailLike) {
       const { data: users } = await supabase
         .from('users')
-        .select('id, email, first_name, last_name')
+        .select('id, email, first_name, last_name, clerk_id')
         .ilike('email', `%${search}%`)
         .limit(10);
 
       if (users && users.length > 0) {
-        const userIds = users.map(u => u.id);
+        // Build lookup sets — orders.user_id could be users.id OR users.clerk_id
+        const uuidIds = users.map(u => u.id).filter(Boolean);
+        const clerkIds = users.map(u => u.clerk_id).filter(Boolean);
+        const allPossibleIds = Array.from(new Set([...uuidIds, ...clerkIds]));
+
+        // Look up orders by any possible user_id format (no status filter)
         const { data: orders } = await supabase
           .from('orders')
           .select('*')
-          .in('user_id', userIds)
-          .in('status', ['completed', 'paid', 'active', 'pending', 'awaiting_payment'])
+          .in('user_id', allPossibleIds)
           .order('created_at', { ascending: false })
-          .limit(20);
+          .limit(30);
 
-        const userMap = users.reduce((m: Record<string, any>, u) => { m[u.id] = u; return m; }, {});
+        // Build user map keyed by both id and clerk_id for lookup
+        for (const u of users) {
+          userMap[u.id] = u;
+          if (u.clerk_id) userMap[u.clerk_id] = u;
+        }
+
         orderResults = (orders || []).map(o => ({
           ...o,
           user_email: userMap[o.user_id]?.email || '',
           user_name: [userMap[o.user_id]?.first_name, userMap[o.user_id]?.last_name].filter(Boolean).join(' '),
         }));
       }
-    } else {
-      // Search by UTR reference or order ID
+    }
+
+    // Strategy 2: Search by UTR reference or order ID (always try this path too)
+    if (orderResults.length === 0) {
+      // Try UTR search and order ID match
       const { data: orders } = await supabase
         .from('orders')
         .select('*')
-        .or(`utr_reference.ilike.%${search}%,id.eq.${search}`)
+        .or(`utr_reference.ilike.%${search}%,id.ilike.%${search}%`)
         .order('created_at', { ascending: false })
         .limit(20);
 
       if (orders && orders.length > 0) {
         const userIds = Array.from(new Set(orders.map(o => o.user_id).filter(Boolean)));
-        const { data: users } = await supabase
-          .from('users')
-          .select('id, email, first_name, last_name')
-          .in('id', userIds);
+        if (userIds.length > 0) {
+          // Look up users by id OR clerk_id
+          const { data: usersById } = await supabase
+            .from('users')
+            .select('id, email, first_name, last_name, clerk_id')
+            .in('id', userIds);
 
-        const userMap = (users || []).reduce((m: Record<string, any>, u) => { m[u.id] = u; return m; }, {});
+          const { data: usersByClerk } = await supabase
+            .from('users')
+            .select('id, email, first_name, last_name, clerk_id')
+            .in('clerk_id', userIds);
+
+          // Merge both lookup results
+          for (const u of [...(usersById || []), ...(usersByClerk || [])]) {
+            userMap[u.id] = u;
+            if (u.clerk_id) userMap[u.clerk_id] = u;
+          }
+        }
+
         orderResults = orders.map(o => ({
           ...o,
           user_email: userMap[o.user_id]?.email || '',
@@ -346,38 +418,104 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Strategy 3: If still nothing and input has no '@', also try as partial email
+    if (orderResults.length === 0 && !isEmailLike) {
+      const { data: users } = await supabase
+        .from('users')
+        .select('id, email, first_name, last_name, clerk_id')
+        .ilike('email', `%${search}%`)
+        .limit(10);
+
+      if (users && users.length > 0) {
+        const allPossibleIds = Array.from(new Set([
+          ...users.map(u => u.id).filter(Boolean),
+          ...users.map(u => u.clerk_id).filter(Boolean),
+        ]));
+
+        const { data: orders } = await supabase
+          .from('orders')
+          .select('*')
+          .in('user_id', allPossibleIds)
+          .order('created_at', { ascending: false })
+          .limit(30);
+
+        for (const u of users) {
+          userMap[u.id] = u;
+          if (u.clerk_id) userMap[u.clerk_id] = u;
+        }
+
+        orderResults = (orders || []).map(o => ({
+          ...o,
+          user_email: userMap[o.user_id]?.email || '',
+          user_name: [userMap[o.user_id]?.first_name, userMap[o.user_id]?.last_name].filter(Boolean).join(' '),
+        }));
+      }
+    }
+
     // Check provisioning status for found orders
-    const orderIds = orderResults.map(o => o.id);
-    let provisionMap: Record<string, string> = {};
+    const orderIds = orderResults.map(o => o.id).filter(Boolean);
+    let provisionMap: Record<string, any> = {};
     if (orderIds.length > 0) {
       const { data: provLogs } = await supabase
         .from('provisioning_logs')
-        .select('order_id, status')
+        .select('order_id, status, challenge_account_id, trading_account_id, plan, completed_at')
         .in('order_id', orderIds);
 
-      provisionMap = (provLogs || []).reduce((m: Record<string, string>, l) => {
-        m[l.order_id] = l.status;
+      provisionMap = (provLogs || []).reduce((m: Record<string, any>, l) => {
+        // Keep the most relevant log (completed > processing > others)
+        if (!m[l.order_id] || l.status === 'completed') {
+          m[l.order_id] = l;
+        }
         return m;
       }, {});
     }
 
-    const results = orderResults.map(o => ({
-      id: o.id,
-      user_id: o.user_id,
-      user_email: o.user_email,
-      user_name: o.user_name,
-      amount: o.amount,
-      account_size: o.account_size,
-      plan_type: o.plan_type,
-      status: o.status,
-      payment_method: o.payment_method,
-      utr_reference: o.utr_reference,
-      provisioning_status: provisionMap[o.id] || null,
-      created_at: o.created_at,
-      can_provision: ['completed', 'paid', 'active'].includes(o.status) && !['completed', 'processing'].includes(provisionMap[o.id]),
-    }));
+    // For provisioned orders, fetch challenge account details
+    const provisionedChallengeIds = Object.values(provisionMap)
+      .filter((p: any) => p.challenge_account_id)
+      .map((p: any) => p.challenge_account_id);
+    
+    let challengeAccountMap: Record<string, any> = {};
+    if (provisionedChallengeIds.length > 0) {
+      const { data: accounts } = await supabase
+        .from('challenge_accounts')
+        .select('id, type, plan, initial_balance, current_balance, status, started_at')
+        .in('id', provisionedChallengeIds);
+      
+      challengeAccountMap = (accounts || []).reduce((m: Record<string, any>, a) => {
+        m[a.id] = a;
+        return m;
+      }, {});
+    }
 
-    return NextResponse.json({ data: results });
+    const results = orderResults.map(o => {
+      const prov = provisionMap[o.id];
+      const challengeAccount = prov?.challenge_account_id ? challengeAccountMap[prov.challenge_account_id] : null;
+      return {
+        id: o.id,
+        user_id: o.user_id,
+        user_email: o.user_email,
+        user_name: o.user_name,
+        amount: o.amount,
+        account_size: o.account_size,
+        plan_type: o.plan_type,
+        status: o.status,
+        payment_method: o.payment_method,
+        utr_reference: o.utr_reference,
+        provisioning_status: prov?.status || null,
+        provisioned_at: prov?.completed_at || null,
+        challenge_account_id: prov?.challenge_account_id || null,
+        trading_account_id: prov?.trading_account_id || null,
+        provisioned_plan: prov?.plan || challengeAccount?.plan || null,
+        provisioned_account_size: challengeAccount?.initial_balance || null,
+        provisioned_challenge_type: challengeAccount?.type || null,
+        provisioned_account_status: challengeAccount?.status || null,
+        created_at: o.created_at,
+        can_provision: ['completed', 'paid', 'active'].includes(o.status) && !['completed', 'processing'].includes(prov?.status),
+      };
+    });
+
+    return NextResponse.json({ data: results, meta: { total: results.length, search, strategy: isEmailLike ? 'email' : 'utr_fallback' } });
   } catch (err) {
     console.error('Manual provision search error:', err);
     return NextResponse.json(
