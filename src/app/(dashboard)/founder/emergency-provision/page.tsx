@@ -1,16 +1,32 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { LoadingState } from '@/components/shared/loading-state';
 import { Shield, UserPlus, Copy, CheckCircle, AlertTriangle, Mail } from 'lucide-react';
 
 /**
  * Emergency Manual Provision — Founder-only.
- * Provisions a trading account WITHOUT requiring a historical order.
- * Creates user (if needed), challenge_account, trading_account, provisioning_logs, audit entry.
- * Sends credentials by email and displays them on screen.
+ * Loads challenge products from the same production configuration.
+ * Uses the shared provisioning pipeline (identical to website checkout).
  */
+
+interface ChallengeProduct {
+  slug: string;
+  displayName: string;
+  accountSizes: number[];
+  phases: number;
+  profitTargetPct: number;
+  dailyDrawdownLimitPct: number;
+  maxDrawdownLimitPct: number;
+  minTradingDays: number;
+  maxTradingDays: number | null;
+  leverage: string;
+  platform: string;
+  profitSplitPct: number;
+  payoutSchedule: string;
+}
 
 interface ProvisionResult {
   user_id: string;
@@ -22,21 +38,32 @@ interface ProvisionResult {
   password: string;
   account_size: number;
   challenge_type: string;
+  challenge_display_name: string;
+  phases: number;
+  profit_target_pct: number;
+  daily_drawdown_limit_pct: number;
+  max_drawdown_limit_pct: number;
+  leverage: string;
+  platform: string;
+  profit_split_pct: number;
+  payout_schedule: string;
   email_sent: boolean;
   user_created: boolean;
   provisioned_at: string;
 }
 
-const ACCOUNT_SIZES = [25000, 50000, 100000, 200000, 500000, 1000000];
-
 export default function EmergencyManualProvisionPage() {
+  // Products loaded from production config
+  const [products, setProducts] = useState<ChallengeProduct[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [productsError, setProductsError] = useState('');
+
   // Form state
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [challengeType, setChallengeType] = useState<'evaluation' | 'express' | 'stellar'>('evaluation');
-  const [accountSize, setAccountSize] = useState<number>(50000);
-  const [customSize, setCustomSize] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState<string>('');
+  const [accountSize, setAccountSize] = useState<number>(0);
 
   // Submission state
   const [submitting, setSubmitting] = useState(false);
@@ -44,15 +71,53 @@ export default function EmergencyManualProvisionPage() {
   const [result, setResult] = useState<ProvisionResult | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Load products from production config on mount
+  useEffect(() => {
+    loadProducts();
+  }, []);
+
+  async function loadProducts() {
+    setProductsLoading(true);
+    setProductsError('');
+    try {
+      const res = await fetch('/api/founder/emergency-provision');
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error?.message || 'Failed to load products');
+      }
+      const json = await res.json();
+      setProducts(json.products || []);
+      // Select first product by default
+      if (json.products?.length > 0) {
+        setSelectedProduct(json.products[0].slug);
+        setAccountSize(json.products[0].accountSizes[0]);
+      }
+    } catch (err) {
+      setProductsError(err instanceof Error ? err.message : 'Failed to load challenge products');
+    } finally {
+      setProductsLoading(false);
+    }
+  }
+
+  const currentProduct = products.find((p) => p.slug === selectedProduct);
+
+  function handleProductChange(slug: string) {
+    setSelectedProduct(slug);
+    const product = products.find((p) => p.slug === slug);
+    if (product) {
+      setAccountSize(product.accountSizes[0]);
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     setResult(null);
 
-    const finalSize = customSize ? Number(customSize) : accountSize;
     if (!name.trim()) { setError('Name is required'); return; }
     if (!email.trim()) { setError('Email is required'); return; }
-    if (!finalSize || finalSize <= 0) { setError('Account size must be positive'); return; }
+    if (!selectedProduct) { setError('Challenge type is required'); return; }
+    if (!accountSize || accountSize <= 0) { setError('Account size is required'); return; }
 
     setSubmitting(true);
 
@@ -64,8 +129,8 @@ export default function EmergencyManualProvisionPage() {
           name: name.trim(),
           email: email.trim().toLowerCase(),
           phone: phone.trim() || undefined,
-          challenge_type: challengeType,
-          account_size: finalSize,
+          challenge_type: selectedProduct,
+          account_size: accountSize,
         }),
       });
 
@@ -93,7 +158,14 @@ Email: ${result.user_email}
 Login ID: ${result.login_id}
 Password: ${result.password}
 Account Size: ₹${result.account_size.toLocaleString()}
-Challenge: ${result.challenge_type}
+Challenge: ${result.challenge_display_name}
+Platform: ${result.platform}
+Leverage: ${result.leverage}
+Profit Target: ${result.profit_target_pct}%
+Daily Drawdown: ${result.daily_drawdown_limit_pct}%
+Max Drawdown: ${result.max_drawdown_limit_pct}%
+Profit Split: ${result.profit_split_pct}%
+Payout: ${result.payout_schedule}
 Terminal: https://terminal.fundedwealth.com
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
     navigator.clipboard.writeText(text);
@@ -105,11 +177,44 @@ Terminal: https://terminal.fundedwealth.com
     setName('');
     setEmail('');
     setPhone('');
-    setChallengeType('evaluation');
-    setAccountSize(50000);
-    setCustomSize('');
+    if (products.length > 0) {
+      setSelectedProduct(products[0].slug);
+      setAccountSize(products[0].accountSizes[0]);
+    }
     setResult(null);
     setError('');
+  }
+
+  if (productsLoading) {
+    return (
+      <div className="space-y-6 max-w-2xl">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            <Shield className="h-7 w-7 text-destructive" />
+            Emergency Manual Provision
+          </h1>
+        </div>
+        <LoadingState rows={4} />
+      </div>
+    );
+  }
+
+  if (productsError) {
+    return (
+      <div className="space-y-6 max-w-2xl">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            <Shield className="h-7 w-7 text-destructive" />
+            Emergency Manual Provision
+          </h1>
+        </div>
+        <div className="flex items-center gap-2 p-4 rounded-md bg-destructive/10 border border-destructive/30 text-sm text-destructive">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {productsError}
+        </div>
+        <Button onClick={loadProducts} variant="outline">Retry</Button>
+      </div>
+    );
   }
 
   return (
@@ -122,7 +227,7 @@ Terminal: https://terminal.fundedwealth.com
         </h1>
         <p className="text-muted-foreground mt-1">
           Founder-only. Provision a trading account without requiring a historical order.
-          Use when order data no longer exists.
+          Uses the same pipeline as the production website checkout.
         </p>
       </div>
 
@@ -132,8 +237,8 @@ Terminal: https://terminal.fundedwealth.com
         <div className="text-sm">
           <p className="font-semibold text-destructive">This action is audited and irreversible.</p>
           <p className="text-muted-foreground">
-            A new account will be created immediately. Credentials are emailed to the user
-            and displayed here. Duplicate emails with active accounts are blocked.
+            Account parameters (drawdown, profit target, leverage, payout) are identical
+            to a normal purchase. Duplicate emails with active accounts are blocked.
           </p>
         </div>
       </div>
@@ -170,7 +275,35 @@ Terminal: https://terminal.fundedwealth.com
               </div>
               <div>
                 <p className="text-muted-foreground">Challenge</p>
-                <p className="font-medium capitalize">{result.challenge_type}</p>
+                <p className="font-medium">{result.challenge_display_name}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Platform</p>
+                <p className="font-medium">{result.platform}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Leverage</p>
+                <p className="font-medium">{result.leverage}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Profit Target</p>
+                <p className="font-medium">{result.profit_target_pct}%</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Daily Drawdown</p>
+                <p className="font-medium">{result.daily_drawdown_limit_pct}%</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Max Drawdown</p>
+                <p className="font-medium">{result.max_drawdown_limit_pct}%</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Profit Split</p>
+                <p className="font-medium">{result.profit_split_pct}%</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Payout Schedule</p>
+                <p className="font-medium capitalize">{result.payout_schedule}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">User Status</p>
@@ -253,36 +386,57 @@ Terminal: https://terminal.fundedwealth.com
                 />
               </div>
 
-              {/* Challenge Type */}
+              {/* Challenge Type — loaded from production config */}
               <div>
                 <label htmlFor="ep-challenge" className="block text-sm font-medium mb-1.5">
                   Challenge <span className="text-destructive">*</span>
                 </label>
-                <select
-                  id="ep-challenge"
-                  value={challengeType}
-                  onChange={(e) => setChallengeType(e.target.value as any)}
-                  className="w-full px-3 py-2 border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                >
-                  <option value="evaluation">Evaluation</option>
-                  <option value="express">Express</option>
-                  <option value="stellar">Stellar</option>
-                </select>
+                <div className="flex flex-wrap gap-2">
+                  {products.map((product) => (
+                    <button
+                      key={product.slug}
+                      type="button"
+                      onClick={() => handleProductChange(product.slug)}
+                      className={`px-4 py-2 rounded-md text-sm font-medium border transition-colors ${
+                        selectedProduct === product.slug
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-background hover:bg-accent border-border'
+                      }`}
+                    >
+                      {product.displayName}
+                    </button>
+                  ))}
+                </div>
+                {currentProduct && (
+                  <div className="mt-2 p-3 rounded-md bg-muted/50 text-xs space-y-1">
+                    <div className="grid grid-cols-3 gap-2">
+                      <span>Profit Target: <strong>{currentProduct.profitTargetPct}%</strong></span>
+                      <span>Daily DD: <strong>{currentProduct.dailyDrawdownLimitPct}%</strong></span>
+                      <span>Max DD: <strong>{currentProduct.maxDrawdownLimitPct}%</strong></span>
+                      <span>Min Days: <strong>{currentProduct.minTradingDays}</strong></span>
+                      <span>Max Days: <strong>{currentProduct.maxTradingDays ?? '∞'}</strong></span>
+                      <span>Phases: <strong>{currentProduct.phases}</strong></span>
+                      <span>Leverage: <strong>{currentProduct.leverage}</strong></span>
+                      <span>Platform: <strong>{currentProduct.platform}</strong></span>
+                      <span>Split: <strong>{currentProduct.profitSplitPct}%</strong></span>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Account Size */}
+              {/* Account Size — from product config */}
               <div>
                 <label className="block text-sm font-medium mb-1.5">
                   Account Size <span className="text-destructive">*</span>
                 </label>
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {ACCOUNT_SIZES.map((size) => (
+                <div className="flex flex-wrap gap-2">
+                  {(currentProduct?.accountSizes || []).map((size) => (
                     <button
                       key={size}
                       type="button"
-                      onClick={() => { setAccountSize(size); setCustomSize(''); }}
+                      onClick={() => setAccountSize(size)}
                       className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
-                        accountSize === size && !customSize
+                        accountSize === size
                           ? 'bg-primary text-primary-foreground border-primary'
                           : 'bg-background hover:bg-accent border-border'
                       }`}
@@ -291,14 +445,6 @@ Terminal: https://terminal.fundedwealth.com
                     </button>
                   ))}
                 </div>
-                <input
-                  type="number"
-                  value={customSize}
-                  onChange={(e) => setCustomSize(e.target.value)}
-                  placeholder="Or enter custom size..."
-                  min="1"
-                  className="w-full px-3 py-2 border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                />
               </div>
 
               {/* Error */}
@@ -312,12 +458,12 @@ Terminal: https://terminal.fundedwealth.com
               {/* Submit */}
               <Button
                 type="submit"
-                disabled={submitting}
+                disabled={submitting || !selectedProduct || !accountSize}
                 className="w-full gap-2"
                 variant="default"
               >
                 <UserPlus className="h-4 w-4" />
-                {submitting ? 'Provisioning...' : 'Provision Account'}
+                {submitting ? 'Provisioning...' : `Provision ${currentProduct?.displayName || ''} Account`}
               </Button>
             </form>
           </CardContent>
