@@ -246,7 +246,7 @@ export async function POST(request: NextRequest) {
       console.error('Audit log failed (non-fatal):', auditErr);
     }
 
-    // 14. Return success
+    // 14. Return success (include password so admin can share if email fails)
     return NextResponse.json({
       success: true,
       data: {
@@ -255,6 +255,7 @@ export async function POST(request: NextRequest) {
         user_name: userName,
         challenge_account_id: challengeAccount.id,
         login_id: loginId,
+        password,
         account_size: finalAccountSize,
         plan: finalPlan,
         challenge_type,
