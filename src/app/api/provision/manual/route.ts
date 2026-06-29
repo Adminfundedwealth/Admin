@@ -4,7 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requireFounderInHandler } from '@/lib/security/require-auth';
 import { auditLogger } from '@/lib/audit/logger';
-import { sendEmail } from '@/lib/email/client';
+import { provisionAccount } from '@/lib/provisioning/provision-account';
+import { VALID_CHALLENGE_SLUGS, getProductConfig } from '@/config/challenge-products';
 import { z } from 'zod';
 import { randomBytes } from 'crypto';
 
@@ -14,17 +15,17 @@ import { randomBytes } from 'crypto';
  * Manual Provision — provisions a trading account for a verified paid user.
  * No date restriction: orders paid weeks/months ago are eligible.
  *
+ * Uses the SHARED provisioning pipeline (provisionAccount) so that accounts
+ * are identical to those created through the normal website checkout.
+ *
  * Flow:
  * 1. Validate input (order_id required, optional overrides)
  * 2. Verify order exists and is paid (status: completed/active/paid)
  * 3. Verify UTR reference matches (if order has one on record)
  * 4. Check duplicate protection — if already provisioned, return existing account details
- * 5. Generate login ID + password
- * 6. Create challenge_account entry
- * 7. Update provisioning_logs
- * 8. Mark order as active
- * 9. Send credentials email to trader
- * 10. Write audit log
+ * 5. Call shared provisionAccount() pipeline
+ * 6. Mark order as active
+ * 7. Write audit log
  *
  * Uses EXISTING shared tables only. Does NOT modify Terminal schema.
  */
@@ -32,19 +33,19 @@ import { randomBytes } from 'crypto';
 const ManualProvisionSchema = z.object({
   order_id: z.string().min(1, 'Order ID is required'),
   utr_reference: z.string().min(1, 'UTR reference is required for verification'),
-  challenge_type: z.enum(['evaluation', 'express', 'stellar']),
+  challenge_type: z.string().min(1, 'Challenge type is required'),
   account_size: z.number().positive(),
   plan: z.string().optional(),
   notes: z.string().max(500).optional(),
 });
 
-// Generate a trading login ID like "FW-12345678"
+// Generate a trading login ID like "FW-12345678" (kept for legacy fallback)
 function generateLoginId(): string {
   const num = randomBytes(4).readUInt32BE(0) % 99999999;
   return `FW-${String(num).padStart(8, '0')}`;
 }
 
-// Generate a secure random password (12 chars, mixed)
+// Generate a secure random password (12 chars, mixed) (kept for legacy fallback)
 function generatePassword(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
   const bytes = randomBytes(12);
@@ -172,85 +173,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 8. Generate credentials
-    const loginId = generateLoginId();
-    const password = generatePassword();
-    const finalAccountSize = account_size;
+    // 8. Use the SHARED provisioning pipeline (same as website checkout & emergency provision)
+    const userName = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Trader';
     const finalPlan = plan || order.plan_type || challenge_type;
 
-    // 9. Create challenge_account (the trading account record)
-    const { data: challengeAccount, error: challengeError } = await supabase
-      .from('challenge_accounts')
-      .insert({
-        trader_id: order.user_id,
-        type: challenge_type,
-        plan: finalPlan,
-        initial_balance: finalAccountSize,
-        current_balance: finalAccountSize,
-        peak_balance: finalAccountSize,
-        profit_target_pct: 10,
-        daily_loss_limit_pct: 5,
-        max_drawdown_pct: 10,
-        min_trading_days: 5,
-        max_calendar_days: 30,
-        status: 'active',
-        started_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
+    const result = await provisionAccount({
+      userId: order.user_id,
+      userEmail: user.email,
+      userName,
+      challengeType: finalPlan,
+      accountSize: account_size,
+      source: 'admin_manual',
+      orderId: order_id,
+      paymentMethod: order.payment_method || 'manual',
+      paymentRef: utr_reference,
+    });
 
-    if (challengeError || !challengeAccount) {
-      console.error('Failed to create challenge account:', challengeError);
+    if (!result.success) {
       return NextResponse.json(
-        { error: { code: 'PROVISION_FAILED', message: `Failed to create challenge account: ${challengeError?.message}` } },
+        { error: { code: 'PROVISION_FAILED', message: result.error || 'Provisioning failed' } },
         { status: 500 }
       );
     }
 
-    // 10. Create provisioning log
-    const { error: provError } = await supabase
-      .from('provisioning_logs')
-      .insert({
-        order_id: order_id,
-        trader_id: order.user_id,
-        trading_account_id: null,
-        challenge_account_id: challengeAccount.id,
-        plan: finalPlan,
-        payment_method: order.payment_method || 'manual',
-        payment_ref: utr_reference,
-        source: 'admin_manual',
-        status: 'completed',
-        started_at: new Date().toISOString(),
-        completed_at: new Date().toISOString(),
-      });
-
-    if (provError) {
-      console.error('Failed to create provisioning log:', provError);
-      // Non-fatal — account is still created
-    }
-
-    // 11. Update order status to active
+    // 9. Update order status to active
     await supabase
       .from('orders')
       .update({ status: 'active', updated_at: new Date().toISOString() })
       .eq('id', order_id);
 
-    // 12. Send credentials email
-    const userName = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Trader';
-    const emailResult = await sendEmail({
-      to: user.email,
-      subject: 'Your FundedWealth Trading Account is Ready!',
-      html: credentialsEmailTemplate({
-        userName,
-        loginId,
-        password,
-        accountSize: finalAccountSize,
-        plan: finalPlan,
-        challengeType: challenge_type,
-      }),
-    });
-
-    // 13. Write audit log
+    // 10. Write audit log
     const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '0.0.0.0';
     try {
       await auditLogger.log({
@@ -262,9 +214,9 @@ export async function POST(request: NextRequest) {
         previousState: { status: order.status },
         newState: {
           status: 'active',
-          challenge_account_id: challengeAccount.id,
-          login_id: loginId,
-          account_size: finalAccountSize,
+          challenge_account_id: result.challengeAccountId,
+          login_id: result.loginId,
+          account_size,
           plan: finalPlan,
         },
         ipAddress: ipAddress.split(',')[0].trim(),
@@ -277,28 +229,27 @@ export async function POST(request: NextRequest) {
         metadata: {
           notes: notes || null,
           utr_reference,
-          email_sent: emailResult.success,
-          email_message_id: emailResult.messageId || null,
+          email_sent: result.emailSent,
         },
       });
     } catch (auditErr) {
       console.error('Audit log failed (non-fatal):', auditErr);
     }
 
-    // 14. Return success (include password so admin can share if email fails)
+    // 11. Return success (include password so admin can share if email fails)
     return NextResponse.json({
       success: true,
       data: {
         order_id,
         user_email: user.email,
         user_name: userName,
-        challenge_account_id: challengeAccount.id,
-        login_id: loginId,
-        password,
-        account_size: finalAccountSize,
+        challenge_account_id: result.challengeAccountId,
+        login_id: result.loginId,
+        password: result.password,
+        account_size,
         plan: finalPlan,
         challenge_type,
-        email_sent: emailResult.success,
+        email_sent: result.emailSent,
         provisioned_at: new Date().toISOString(),
       },
     });
@@ -523,56 +474,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Email Template
-// ---------------------------------------------------------------------------
-
-function credentialsEmailTemplate(params: {
-  userName: string;
-  loginId: string;
-  password: string;
-  accountSize: number;
-  plan: string;
-  challengeType: string;
-}): string {
-  return `
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>Your Trading Account is Ready</title></head>
-<body style="margin:0;padding:0;background:#f4f4f5;">
-  <div style="max-width:600px;margin:0 auto;padding:40px 20px;">
-    <div style="background:#ffffff;border-radius:8px;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1a1a2e;line-height:1.6;">
-      <img src="https://fundedwealth.com/logo.png" alt="FundedWealth" style="height:32px;margin-bottom:24px;" />
-      
-      <h2 style="margin:0 0 16px;color:#16a34a;">🎉 Your Trading Account is Ready!</h2>
-      
-      <p>Hi ${params.userName},</p>
-      
-      <p>Great news! Your FundedWealth trading account has been provisioned and is ready to use.</p>
-      
-      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:20px;margin:24px 0;">
-        <h3 style="margin:0 0 12px;font-size:14px;color:#166534;">Account Details</h3>
-        <table style="width:100%;border-collapse:collapse;">
-          <tr><td style="padding:4px 0;color:#666;font-size:13px;">Login ID:</td><td style="padding:4px 0;font-weight:700;font-size:14px;">${params.loginId}</td></tr>
-          <tr><td style="padding:4px 0;color:#666;font-size:13px;">Password:</td><td style="padding:4px 0;font-weight:700;font-size:14px;font-family:monospace;">${params.password}</td></tr>
-          <tr><td style="padding:4px 0;color:#666;font-size:13px;">Account Size:</td><td style="padding:4px 0;font-weight:600;font-size:14px;">₹${params.accountSize.toLocaleString()}</td></tr>
-          <tr><td style="padding:4px 0;color:#666;font-size:13px;">Plan:</td><td style="padding:4px 0;font-size:14px;">${params.plan} (${params.challengeType})</td></tr>
-        </table>
-      </div>
-      
-      <p style="font-size:13px;color:#dc2626;font-weight:600;">⚠️ Please change your password after first login.</p>
-      
-      <a href="https://terminal.fundedwealth.com" style="display:inline-block;padding:12px 24px;background-color:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;margin-top:16px;">Login to Trading Terminal</a>
-      
-      <hr style="border:none;border-top:1px solid #e4e4e7;margin:32px 0 16px;" />
-      <p style="font-size:12px;color:#71717a;">
-        This is an automated email from FundedWealth. Do not reply directly.<br/>
-        If you need help, contact support@fundedwealth.com
-      </p>
-    </div>
-  </div>
-</body>
-</html>`;
 }
