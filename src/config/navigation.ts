@@ -55,6 +55,12 @@ export const sidebarNavigation: NavigationSection[] = [
         permission: 'payments.view',
         badge: { query: 'payments_failed' },
       },
+      {
+        label: 'Manual Provision',
+        icon: 'UserCog',
+        href: '/provision',
+        permission: null,
+      },
     ],
   },
   {
