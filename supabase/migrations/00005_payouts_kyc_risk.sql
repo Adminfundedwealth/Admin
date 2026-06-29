@@ -1,16 +1,18 @@
 -- ============================================================
--- Migration: Payouts, KYC, and Risk Management
--- Task 5: Database Schema - Payouts, KYC, and Risk
+-- Migration: Admin Payouts, KYC Review, and Risk Management
+-- These are Admin-owned operational tables.
+-- References Main Site "users" and Terminal "funded_accounts" 
+-- via UUID columns (no hard FK to avoid cross-service coupling).
 -- ============================================================
 
 -- ============================================================
--- Payout Requests
+-- Payout Requests (Admin tracks payout workflow)
 -- ============================================================
 
 CREATE TABLE payout_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id),
-    funded_account_id UUID NOT NULL REFERENCES funded_accounts(id),
+    user_id UUID NOT NULL,              -- References Main Site users.id
+    funded_account_id UUID NOT NULL,    -- References Terminal funded_accounts.id
     requested_amount DECIMAL(15,2) NOT NULL 
         CHECK (requested_amount BETWEEN 0.01 AND 999999999.99),
     profit_share_pct DECIMAL(5,2) NOT NULL,
@@ -71,12 +73,12 @@ CREATE TRIGGER payout_history_immutable_delete
     EXECUTE FUNCTION prevent_payout_history_modification();
 
 -- ============================================================
--- KYC Submissions
+-- KYC Submissions (Admin reviews KYC)
 -- ============================================================
 
 CREATE TABLE kyc_submissions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id),
+    user_id UUID NOT NULL,              -- References Main Site users.id
     status VARCHAR(20) NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'in_review', 'approved', 'rejected', 'resubmit_requested')),
     submission_count INTEGER DEFAULT 1 CHECK (submission_count BETWEEN 1 AND 3),
@@ -115,14 +117,14 @@ CREATE TABLE kyc_documents (
 CREATE INDEX idx_kyc_documents_submission ON kyc_documents(submission_id);
 
 -- ============================================================
--- Risk Alerts
+-- Risk Alerts (Admin monitors risk events)
 -- ============================================================
 
 CREATE TABLE risk_alerts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id UUID NOT NULL,
+    account_id UUID NOT NULL,           -- References Terminal challenge/funded account
     account_type VARCHAR(10) NOT NULL CHECK (account_type IN ('challenge', 'funded')),
-    user_id UUID NOT NULL REFERENCES users(id),
+    user_id UUID NOT NULL,              -- References Main Site users.id
     alert_type VARCHAR(50) NOT NULL,
     severity VARCHAR(10) NOT NULL 
         CHECK (severity IN ('low', 'medium', 'high', 'critical')),
