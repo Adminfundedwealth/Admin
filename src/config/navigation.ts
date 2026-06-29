@@ -36,6 +36,12 @@ export const sidebarNavigation: NavigationSection[] = [
         href: '/founder/emergency',
         permission: null,
       },
+      {
+        label: 'Emergency Manual Provision',
+        icon: 'UserCog',
+        href: '/founder/emergency-provision',
+        permission: null,
+      },
     ],
   },
   {
