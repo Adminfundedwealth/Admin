@@ -4,43 +4,54 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requireFounderInHandler } from '@/lib/security/require-auth';
 import { auditLogger } from '@/lib/audit/logger';
-import { provisionAccount } from '@/lib/provisioning/provision-account';
-import { CHALLENGE_PRODUCTS, VALID_CHALLENGE_SLUGS, getProductConfig, isValidAccountSize } from '@/config/challenge-products';
+import {
+  fetchCatalog,
+  provisionViaMainSite,
+  resolveSizeIndex,
+  MainSiteError,
+  type PlanSlug,
+} from '@/lib/provisioning/mainsite-provision';
 import { z } from 'zod';
 
 /**
  * GET /api/founder/emergency-provision
  *
- * Returns the available challenge products and their configurations.
- * The frontend uses this to populate the form with PRODUCTION options only.
+ * Returns the challenge catalog. The values come ENTIRELY from the Main
+ * Website's single source of truth (@workspace/products) via the production
+ * `/api/provisioning/catalog` endpoint. The Admin holds NO product, size or
+ * risk values of its own — if production changes, this reflects it automatically.
  */
 export async function GET() {
   try {
-    const { staff, error: authError } = await requireFounderInHandler();
+    const { error: authError } = await requireFounderInHandler();
     if (authError) return authError;
 
-    return NextResponse.json({
-      products: CHALLENGE_PRODUCTS.map((p) => ({
-        slug: p.slug,
-        displayName: p.displayName,
-        accountSizes: p.accountSizes,
-        phases: p.phases,
-        profitTargetPct: p.profitTargetPct,
-        dailyDrawdownLimitPct: p.dailyDrawdownLimitPct,
-        maxDrawdownLimitPct: p.maxDrawdownLimitPct,
-        minTradingDays: p.minTradingDays,
-        maxTradingDays: p.maxTradingDays,
-        leverage: p.leverage,
-        platform: p.platform,
-        profitSplitPct: p.profitSplitPct,
-        payoutSchedule: p.payoutSchedule,
-      })),
-    });
+    const catalog = await fetchCatalog();
+
+    // Map to the shape the existing Founder form expects.
+    const products = catalog.map((p) => ({
+      slug: p.slug,
+      displayName: p.displayLabel,
+      accountSizes: p.sizes.map((s) => s.accountSize),
+      phases: p.slug === '2step' ? 2 : 1,
+      profitTargetPct: p.rules.profitTargetPct,
+      dailyDrawdownLimitPct: p.rules.dailyLossLimitPct,
+      maxDrawdownLimitPct: p.rules.maxDrawdownPct,
+      minTradingDays: p.rules.minTradingDays,
+      maxTradingDays: p.rules.maxDaysAllowed,
+      leverage: p.leverage,
+      platform: 'match-trader',
+      profitSplitPct: parseInt(p.profitSplit, 10) || 0,
+      payoutSchedule: p.duration,
+    }));
+
+    return NextResponse.json({ products });
   } catch (err) {
+    const status = err instanceof MainSiteError ? err.status : 500;
     console.error('Emergency provision GET error:', err);
     return NextResponse.json(
-      { error: { code: 'INTERNAL_ERROR', message: 'Failed to load products' } },
-      { status: 500 }
+      { error: { code: 'CATALOG_UNAVAILABLE', message: err instanceof Error ? err.message : 'Failed to load products' } },
+      { status: status >= 400 ? status : 500 },
     );
   }
 }
@@ -48,12 +59,15 @@ export async function GET() {
 /**
  * POST /api/founder/emergency-provision
  *
- * Emergency Manual Provision — Founder-only.
- * Uses the EXACT SAME provisioning pipeline as a normal website purchase.
- * Creates user (if not present), then calls the shared provisionAccount() function.
+ * Founder Emergency Provision. Behaves EXACTLY like a website purchase except
+ * payment is bypassed by Founder authorization, because it calls the SAME
+ * production provisioning pipeline (`POST /api/provisioning/emergency` →
+ * `provisionChallenge`). The Admin performs NO local provisioning, NO
+ * credential generation, NO risk-rule mapping and NO challenge configuration.
  *
- * Duplicate protection: If the email already has an active trading account,
- * the request is rejected.
+ * Flow:
+ *   Founder auth → resolve/create user → resolve size index from production
+ *   catalog → call production provisioning pipeline → audit → return.
  */
 
 const EmergencyProvisionSchema = z.object({
@@ -70,38 +84,49 @@ export async function POST(request: NextRequest) {
     const { staff, error: authError } = await requireFounderInHandler();
     if (authError) return authError;
 
-    // 2. Parse and validate body
+    // 2. Parse request body
     const body = await request.json();
     const parsed = EmergencyProvisionSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { error: { code: 'VALIDATION_ERROR', message: parsed.error.errors[0].message } },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     const { name, email, phone, challenge_type, account_size } = parsed.data;
 
-    // 3. Validate challenge_type against production products
-    const product = getProductConfig(challenge_type);
+    // 3. Validate plan + size against the PRODUCTION catalog (single source of truth)
+    const catalog = await fetchCatalog();
+    const product = catalog.find((p) => p.slug === challenge_type);
     if (!product) {
       return NextResponse.json(
-        { error: { code: 'INVALID_CHALLENGE_TYPE', message: `Invalid challenge type: "${challenge_type}". Valid types: ${VALID_CHALLENGE_SLUGS.join(', ')}` } },
-        { status: 400 }
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: `Invalid challenge type: "${challenge_type}". Valid types: ${catalog.map((p) => p.slug).join(', ')}`,
+          },
+        },
+        { status: 400 },
       );
     }
 
-    // 4. Validate account size for this product
-    if (!isValidAccountSize(challenge_type, account_size)) {
+    const sizeIndex = resolveSizeIndex(catalog, challenge_type, account_size);
+    if (sizeIndex === null) {
       return NextResponse.json(
-        { error: { code: 'INVALID_ACCOUNT_SIZE', message: `₹${account_size.toLocaleString()} is not a valid size for ${product.displayName}. Valid: ${product.accountSizes.map(s => '₹' + s.toLocaleString()).join(', ')}` } },
-        { status: 400 }
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: `₹${account_size.toLocaleString()} is not a valid size for ${product.displayLabel}. Valid: ${product.sizes.map((s) => s.sizeLabel).join(', ')}`,
+          },
+        },
+        { status: 400 },
       );
     }
 
     const supabase = createAdminClient();
 
-    // 5. Check if user already exists
+    // 4. Resolve or create the user (a website purchase is always by a registered user)
     const { data: existingUser } = await supabase
       .from('users')
       .select('id, email, first_name, last_name')
@@ -109,31 +134,11 @@ export async function POST(request: NextRequest) {
       .single();
 
     let userId: string;
+    let userCreated = false;
 
     if (existingUser) {
       userId = existingUser.id;
-
-      // 6. Duplicate protection — check if this email already has an active trading account
-      const { data: activeAccounts } = await supabase
-        .from('challenge_accounts')
-        .select('id, status, initial_balance, type')
-        .eq('trader_id', userId)
-        .eq('status', 'active')
-        .limit(1);
-
-      if (activeAccounts && activeAccounts.length > 0) {
-        return NextResponse.json(
-          {
-            error: {
-              code: 'DUPLICATE_ACTIVE_ACCOUNT',
-              message: `This email already has an active trading account (${activeAccounts[0].type}, ₹${activeAccounts[0].initial_balance?.toLocaleString()}). Cannot create a duplicate.`,
-            },
-          },
-          { status: 409 }
-        );
-      }
     } else {
-      // 7. Create user
       const nameParts = name.trim().split(/\s+/);
       const firstName = nameParts[0] || name;
       const lastName = nameParts.slice(1).join(' ') || null;
@@ -153,34 +158,33 @@ export async function POST(request: NextRequest) {
       if (userError || !newUser) {
         return NextResponse.json(
           { error: { code: 'USER_CREATE_FAILED', message: `Failed to create user: ${userError?.message}` } },
-          { status: 500 }
+          { status: 500 },
         );
       }
 
       userId = newUser.id;
+      userCreated = true;
     }
 
-    // 8. Use the SHARED provisioning pipeline (same as normal checkout)
-    const result = await provisionAccount({
-      userId,
-      userEmail: email.toLowerCase(),
-      userName: name,
-      challengeType: challenge_type,
-      accountSize: account_size,
-      source: 'founder_manual',
-      orderId: null,
-      paymentMethod: 'emergency_manual',
-      paymentRef: `EMERGENCY-${Date.now()}`,
-    });
-
-    if (!result.success) {
+    // 5. Call the PRODUCTION provisioning pipeline (same as a website purchase)
+    let result;
+    try {
+      result = await provisionViaMainSite({
+        planType: challenge_type as PlanSlug,
+        sizeIndex,
+        userId,
+        email: email.toLowerCase(),
+        note: 'founder_emergency_provision',
+      });
+    } catch (err) {
+      const status = err instanceof MainSiteError ? err.status : 500;
       return NextResponse.json(
-        { error: { code: 'PROVISION_FAILED', message: result.error || 'Provisioning failed' } },
-        { status: 500 }
+        { error: { code: 'PROVISION_FAILED', message: err instanceof Error ? err.message : 'Provisioning failed' } },
+        { status: status >= 400 ? status : 500 },
       );
     }
 
-    // 9. Write audit log (admin_events)
+    // 6. Audit log
     const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '0.0.0.0';
     try {
       await auditLogger.log({
@@ -194,19 +198,10 @@ export async function POST(request: NextRequest) {
           name,
           challenge_account_id: result.challengeAccountId,
           trading_account_id: result.tradingAccountId,
-          login_id: result.loginId,
-          account_size,
+          account_code: result.accountCode,
+          account_size: result.accountSize,
           challenge_type,
-          product_slug: product.slug,
-          product_display_name: product.displayName,
-          phases: product.phases,
-          profit_target_pct: product.profitTargetPct,
-          daily_drawdown_limit_pct: product.dailyDrawdownLimitPct,
-          max_drawdown_limit_pct: product.maxDrawdownLimitPct,
-          leverage: product.leverage,
-          platform: product.platform,
-          profit_split_pct: product.profitSplitPct,
-          source: 'founder_manual',
+          source: 'founder_emergency',
         },
         ipAddress: ipAddress.split(',')[0].trim(),
         deviceInfo: {
@@ -217,15 +212,15 @@ export async function POST(request: NextRequest) {
         },
         metadata: {
           phone: phone || null,
-          email_sent: result.emailSent,
-          user_existed: !!existingUser,
+          user_existed: !userCreated,
+          provisioning_log_id: result.provisioningLogId,
         },
       });
     } catch (auditErr) {
       console.error('Audit log failed (non-fatal):', auditErr);
     }
 
-    // 10. Return success with credentials
+    // 7. Return success — all values originate from the production pipeline + catalog
     return NextResponse.json({
       success: true,
       data: {
@@ -234,21 +229,19 @@ export async function POST(request: NextRequest) {
         user_name: name,
         challenge_account_id: result.challengeAccountId,
         trading_account_id: result.tradingAccountId,
-        login_id: result.loginId,
-        password: result.password,
-        account_size,
+        account_code: result.accountCode,
+        account_size: result.accountSize,
         challenge_type: product.slug,
-        challenge_display_name: product.displayName,
-        phases: product.phases,
-        profit_target_pct: product.profitTargetPct,
-        daily_drawdown_limit_pct: product.dailyDrawdownLimitPct,
-        max_drawdown_limit_pct: product.maxDrawdownLimitPct,
+        challenge_display_name: product.displayLabel,
+        phases: product.slug === '2step' ? 2 : 1,
+        profit_target_pct: product.rules.profitTargetPct,
+        daily_drawdown_limit_pct: product.rules.dailyLossLimitPct,
+        max_drawdown_limit_pct: product.rules.maxDrawdownPct,
         leverage: product.leverage,
-        platform: product.platform,
-        profit_split_pct: product.profitSplitPct,
-        payout_schedule: product.payoutSchedule,
-        email_sent: result.emailSent,
-        user_created: !existingUser,
+        platform: 'match-trader',
+        profit_split_pct: parseInt(product.profitSplit, 10) || 0,
+        payout_schedule: product.duration,
+        user_created: userCreated,
         provisioned_at: new Date().toISOString(),
       },
     });
@@ -256,7 +249,7 @@ export async function POST(request: NextRequest) {
     console.error('Emergency provision error:', err);
     return NextResponse.json(
       { error: { code: 'INTERNAL_ERROR', message: 'Emergency provisioning failed unexpectedly' } },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
