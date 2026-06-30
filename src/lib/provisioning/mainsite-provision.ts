@@ -57,8 +57,7 @@ export interface EmergencyProvisionResult {
 
 /**
  * Resolve the Main Website API base URL.
- * Reuses the existing MAINSITE_WEBHOOK_URL origin so no brand-new config is
- * strictly required; MAINSITE_API_URL overrides it when present.
+ * Priority: MAINSITE_API_URL env → MAINSITE_WEBHOOK_URL origin → production Railway default.
  */
 export function mainSiteApiBase(): string {
   const explicit = process.env.MAINSITE_API_URL;
@@ -66,12 +65,18 @@ export function mainSiteApiBase(): string {
   const webhook = process.env.MAINSITE_WEBHOOK_URL;
   if (webhook) {
     try {
-      return new URL(webhook).origin;
+      const origin = new URL(webhook).origin;
+      // If webhook points to the SPA (fundedwealth.com), use Railway instead
+      if (!origin.includes('railway') && !origin.includes('api')) {
+        return 'https://fundedwealth-api-production.up.railway.app';
+      }
+      return origin;
     } catch {
       /* fall through */
     }
   }
-  return 'https://fundedwealth.com';
+  // Production default: the Railway-deployed Express api-server.
+  return 'https://fundedwealth-api-production.up.railway.app';
 }
 
 function internalHeaders(): Record<string, string> {
