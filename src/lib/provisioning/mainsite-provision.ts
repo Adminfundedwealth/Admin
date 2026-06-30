@@ -107,6 +107,15 @@ export async function fetchCatalog(): Promise<CatalogProduct[]> {
     );
   }
 
+  // Guard against SPA catch-all returning HTML with 200
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new MainSiteError(
+      `Production catalog returned non-JSON (${contentType}). Ensure MAINSITE_API_URL points to the api-server, not the frontend.`,
+      502,
+    );
+  }
+
   const json = await res.json();
   return (json.products || []) as CatalogProduct[];
 }

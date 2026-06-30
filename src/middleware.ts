@@ -122,6 +122,27 @@ async function hashToken(token: string): Promise<string> {
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
+  // Global error handler — NEVER let middleware crash return HTML for API routes
+  try {
+    return await _middleware(request, pathname);
+  } catch (err) {
+    console.error('[Middleware] Unhandled error:', err);
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { error: { code: 'INTERNAL_ERROR', message: 'Middleware error' } },
+        { status: 500 }
+      );
+    }
+    // For page requests, redirect to login as a safe fallback
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('redirect', pathname);
+    loginUrl.searchParams.set('reason', 'error');
+    return NextResponse.redirect(loginUrl);
+  }
+}
+
+async function _middleware(request: NextRequest, pathname: string) {
+
   // Cron routes — require CRON_SECRET bearer token
   if (pathname.startsWith('/api/cron')) {
     const cronSecret = process.env.CRON_SECRET;
