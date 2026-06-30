@@ -4,8 +4,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requireFounderInHandler } from '@/lib/security/require-auth';
 import { auditLogger } from '@/lib/audit/logger';
-import { provisionAccount } from '@/lib/provisioning/provision-account';
-import { VALID_CHALLENGE_SLUGS, getProductConfig } from '@/config/challenge-products';
+import {
+  fetchCatalog,
+  provisionViaMainSite,
+  resolveSizeIndex,
+  MainSiteError,
+  type PlanSlug,
+} from '@/lib/provisioning/mainsite-provision';
 import { z } from 'zod';
 
 /**
@@ -14,16 +19,18 @@ import { z } from 'zod';
  * Manual Provision — provisions a trading account for a verified paid user.
  * No date restriction: orders paid weeks/months ago are eligible.
  *
- * Uses the SHARED provisioning pipeline (provisionAccount) so that accounts
- * are identical to those created through the normal website checkout.
+ * Calls the PRODUCTION provisioning pipeline on the Main Website
+ * (POST /api/provisioning/emergency → provisionChallenge) so accounts are
+ * identical to those created through the normal website checkout. The Admin
+ * owns NO provisioning logic, challenge config, risk rules or credentials.
  *
  * Flow:
  * 1. Validate input (order_id required, optional overrides)
  * 2. Verify order exists and is paid (status: completed/active/paid)
  * 3. Verify UTR reference matches (if order has one on record)
  * 4. Check duplicate protection — if already provisioned, return existing account details
- * 5. Call shared provisionAccount() pipeline
- * 6. Mark order as active
+ * 5. Call the production provisioning pipeline
+ * 6. Production service confirms the order
  * 7. Write audit log
  *
  * Uses EXISTING shared tables only. Does NOT modify Terminal schema.
@@ -155,35 +162,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 8. Use the SHARED provisioning pipeline (same as website checkout & emergency provision)
+    // 8. Validate plan + size against the PRODUCTION catalog (single source of truth)
     const userName = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Trader';
-    const finalPlan = challenge_type;
-
-    const result = await provisionAccount({
-      userId: order.user_id,
-      userEmail: user.email,
-      userName,
-      challengeType: finalPlan,
-      accountSize: account_size,
-      source: 'admin_manual',
-      orderId: order_id,
-      paymentMethod: order.payment_method || 'manual',
-      paymentRef: utr_reference,
-      skipDuplicateCheck: true, // Manual provision already checks provisioning_logs for duplicate orders
-    });
-
-    if (!result.success) {
+    const catalog = await fetchCatalog();
+    const product = catalog.find((p) => p.slug === challenge_type);
+    if (!product) {
       return NextResponse.json(
-        { error: { code: 'PROVISION_FAILED', message: result.error || 'Provisioning failed' } },
-        { status: 500 }
+        { error: { code: 'VALIDATION_ERROR', message: `Invalid challenge type: "${challenge_type}". Valid types: ${catalog.map((p) => p.slug).join(', ')}` } },
+        { status: 400 }
       );
     }
 
-    // 9. Update order status to active
-    await supabase
-      .from('orders')
-      .update({ status: 'active', updated_at: new Date().toISOString() })
-      .eq('id', order_id);
+    const sizeIndex = resolveSizeIndex(catalog, challenge_type, account_size);
+    if (sizeIndex === null) {
+      return NextResponse.json(
+        { error: { code: 'VALIDATION_ERROR', message: `₹${account_size.toLocaleString()} is not a valid size for ${product.displayLabel}.` } },
+        { status: 400 }
+      );
+    }
+
+    // 9. Provision through the PRODUCTION pipeline (same as a website purchase).
+    //    Passing orderId lets the production service confirm the order too.
+    let result;
+    try {
+      result = await provisionViaMainSite({
+        planType: challenge_type as PlanSlug,
+        sizeIndex,
+        userId: order.user_id,
+        email: user.email,
+        orderId: order_id,
+        note: notes || `manual_provision utr=${utr_reference}`,
+      });
+    } catch (err) {
+      const status = err instanceof MainSiteError ? err.status : 500;
+      return NextResponse.json(
+        { error: { code: 'PROVISION_FAILED', message: err instanceof Error ? err.message : 'Provisioning failed' } },
+        { status: status >= 400 ? status : 500 }
+      );
+    }
 
     // 10. Write audit log
     const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '0.0.0.0';
@@ -196,11 +212,12 @@ export async function POST(request: NextRequest) {
         targetEntityId: order_id,
         previousState: { status: order.status },
         newState: {
-          status: 'active',
+          status: 'confirmed',
           challenge_account_id: result.challengeAccountId,
-          login_id: result.loginId,
-          account_size,
-          plan: finalPlan,
+          trading_account_id: result.tradingAccountId,
+          account_code: result.accountCode,
+          account_size: result.accountSize,
+          plan: challenge_type,
         },
         ipAddress: ipAddress.split(',')[0].trim(),
         deviceInfo: {
@@ -212,14 +229,14 @@ export async function POST(request: NextRequest) {
         metadata: {
           notes: notes || null,
           utr_reference,
-          email_sent: result.emailSent,
+          provisioning_log_id: result.provisioningLogId,
         },
       });
     } catch (auditErr) {
       console.error('Audit log failed (non-fatal):', auditErr);
     }
 
-    // 11. Return success (include password so admin can share if email fails)
+    // 11. Return success
     return NextResponse.json({
       success: true,
       data: {
@@ -227,12 +244,11 @@ export async function POST(request: NextRequest) {
         user_email: user.email,
         user_name: userName,
         challenge_account_id: result.challengeAccountId,
-        login_id: result.loginId,
-        password: result.password,
-        account_size,
-        plan: finalPlan,
+        trading_account_id: result.tradingAccountId,
+        account_code: result.accountCode,
+        account_size: result.accountSize,
+        plan: challenge_type,
         challenge_type,
-        email_sent: result.emailSent,
         provisioned_at: new Date().toISOString(),
       },
     });

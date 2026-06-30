@@ -34,8 +34,7 @@ interface ProvisionResult {
   user_name: string;
   challenge_account_id: string;
   trading_account_id: string | null;
-  login_id: string;
-  password: string;
+  account_code: string;
   account_size: number;
   challenge_type: string;
   challenge_display_name: string;
@@ -47,7 +46,6 @@ interface ProvisionResult {
   platform: string;
   profit_split_pct: number;
   payout_schedule: string;
-  email_sent: boolean;
   user_created: boolean;
   provisioned_at: string;
 }
@@ -151,12 +149,11 @@ export default function EmergencyManualProvisionPage() {
 
   function copyCredentials() {
     if (!result) return;
-    const text = `FundedWealth Trading Account Credentials
+    const text = `FundedWealth Trading Account
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Name: ${result.user_name}
 Email: ${result.user_email}
-Login ID: ${result.login_id}
-Password: ${result.password}
+Account Code: ${result.account_code}
 Account Size: ₹${result.account_size.toLocaleString()}
 Challenge: ${result.challenge_display_name}
 Platform: ${result.platform}
@@ -166,6 +163,7 @@ Daily Drawdown: ${result.daily_drawdown_limit_pct}%
 Max Drawdown: ${result.max_drawdown_limit_pct}%
 Profit Split: ${result.profit_split_pct}%
 Payout: ${result.payout_schedule}
+The trader logs in to the Terminal with their existing FundedWealth account.
 Terminal: https://terminal.fundedwealth.com
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
     navigator.clipboard.writeText(text);
@@ -262,12 +260,12 @@ Terminal: https://terminal.fundedwealth.com
                 <p className="font-medium">{result.user_email}</p>
               </div>
               <div>
-                <p className="text-muted-foreground">Login ID</p>
-                <p className="font-bold font-mono text-base">{result.login_id}</p>
+                <p className="text-muted-foreground">Account Code</p>
+                <p className="font-bold font-mono text-base">{result.account_code}</p>
               </div>
               <div>
-                <p className="text-muted-foreground">Password</p>
-                <p className="font-bold font-mono text-base">{result.password}</p>
+                <p className="text-muted-foreground">Challenge Account ID</p>
+                <p className="font-medium font-mono text-xs break-all">{result.challenge_account_id}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Account Size</p>
@@ -310,13 +308,9 @@ Terminal: https://terminal.fundedwealth.com
                 <p className="font-medium">{result.user_created ? 'New user created' : 'Existing user'}</p>
               </div>
               <div>
-                <p className="text-muted-foreground">Email Sent</p>
+                <p className="text-muted-foreground">Terminal Login</p>
                 <p className="font-medium flex items-center gap-1">
-                  {result.email_sent ? (
-                    <><Mail className="h-3.5 w-3.5 text-green-600" /> Yes</>
-                  ) : (
-                    <><AlertTriangle className="h-3.5 w-3.5 text-yellow-600" /> Failed — share manually</>
-                  )}
+                  <Mail className="h-3.5 w-3.5 text-green-600" /> Existing account
                 </p>
               </div>
             </div>
