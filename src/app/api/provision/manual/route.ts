@@ -7,7 +7,6 @@ import { auditLogger } from '@/lib/audit/logger';
 import { provisionAccount } from '@/lib/provisioning/provision-account';
 import { VALID_CHALLENGE_SLUGS, getProductConfig } from '@/config/challenge-products';
 import { z } from 'zod';
-import { randomBytes } from 'crypto';
 
 /**
  * POST /api/provision/manual
@@ -38,23 +37,6 @@ const ManualProvisionSchema = z.object({
   plan: z.string().optional(),
   notes: z.string().max(500).optional(),
 });
-
-// Generate a trading login ID like "FW-12345678" (kept for legacy fallback)
-function generateLoginId(): string {
-  const num = randomBytes(4).readUInt32BE(0) % 99999999;
-  return `FW-${String(num).padStart(8, '0')}`;
-}
-
-// Generate a secure random password (12 chars, mixed) (kept for legacy fallback)
-function generatePassword(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
-  const bytes = randomBytes(12);
-  let password = '';
-  for (let i = 0; i < 12; i++) {
-    password += chars[bytes[i] % chars.length];
-  }
-  return password;
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -175,7 +157,7 @@ export async function POST(request: NextRequest) {
 
     // 8. Use the SHARED provisioning pipeline (same as website checkout & emergency provision)
     const userName = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Trader';
-    const finalPlan = plan || order.plan_type || challenge_type;
+    const finalPlan = challenge_type;
 
     const result = await provisionAccount({
       userId: order.user_id,
@@ -187,6 +169,7 @@ export async function POST(request: NextRequest) {
       orderId: order_id,
       paymentMethod: order.payment_method || 'manual',
       paymentRef: utr_reference,
+      skipDuplicateCheck: true, // Manual provision already checks provisioning_logs for duplicate orders
     });
 
     if (!result.success) {
