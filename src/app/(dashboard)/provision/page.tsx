@@ -102,7 +102,7 @@ export default function ManualProvisionPage() {
 
   // Provision form fields
   const [utrInput, setUtrInput] = useState('');
-  const [challengeType, setChallengeType] = useState<'evaluation' | 'express' | 'stellar'>('evaluation');
+  const [challengeType, setChallengeType] = useState<'flash' | 'instant' | '1-step' | '2-step'>('flash');
   const [accountSizeInput, setAccountSizeInput] = useState('');
   const [planInput, setPlanInput] = useState('');
   const [notesInput, setNotesInput] = useState('');
@@ -166,7 +166,7 @@ export default function ManualProvisionPage() {
     setUtrInput(order.utr_reference || '');
     setAccountSizeInput(order.account_size ? String(order.account_size) : '25000');
     setPlanInput(order.plan_type || '');
-    setChallengeType('evaluation');
+    setChallengeType('flash');
     setNotesInput('');
     setProvisionError('');
   }
@@ -791,9 +791,10 @@ Please change your password after first login.`;
                       onChange={(e) => setChallengeType(e.target.value as any)}
                       className="w-full mt-1 px-3 py-2 border rounded-md text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                     >
-                      <option value="evaluation">Evaluation</option>
-                      <option value="express">Express</option>
-                      <option value="stellar">Stellar</option>
+                      <option value="flash">Flash</option>
+                      <option value="instant">Instant</option>
+                      <option value="1-step">1-Step</option>
+                      <option value="2-step">2-Step</option>
                     </select>
                   </div>
                   <div>
