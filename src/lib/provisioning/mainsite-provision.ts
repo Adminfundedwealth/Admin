@@ -96,11 +96,12 @@ export class MainSiteError extends Error {
 
 /**
  * Fetch the production challenge catalog (single source of truth).
+ * The catalog is public (same data shown on the website pricing page).
  */
 export async function fetchCatalog(): Promise<CatalogProduct[]> {
   const res = await fetch(`${mainSiteApiBase()}/api/provisioning/catalog`, {
     method: 'GET',
-    headers: internalHeaders(),
+    headers: { 'Accept': 'application/json' },
     cache: 'no-store',
   });
 
