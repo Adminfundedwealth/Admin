@@ -12,20 +12,26 @@ import { Shield, UserPlus, Copy, CheckCircle, AlertTriangle, Mail } from 'lucide
  * Uses the shared provisioning pipeline (identical to website checkout).
  */
 
+interface ChallengeProductSize {
+  accountSize: number;
+  sizeLabel: string;
+  fee: number;
+  popular: boolean;
+}
+
 interface ChallengeProduct {
   slug: string;
   displayName: string;
-  accountSizes: number[];
-  phases: number;
-  profitTargetPct: number;
-  dailyDrawdownLimitPct: number;
-  maxDrawdownLimitPct: number;
-  minTradingDays: number;
-  maxTradingDays: number | null;
+  profitTarget: string;
+  maxLoss: string;
+  dailyLoss: string;
+  minDays: string;
   leverage: string;
-  platform: string;
-  profitSplitPct: number;
-  payoutSchedule: string;
+  profitSplit: string;
+  duration: string;
+  phases: number;
+  sizes: ChallengeProductSize[];
+  accountSizes: number[];
 }
 
 interface ProvisionResult {
@@ -39,13 +45,13 @@ interface ProvisionResult {
   challenge_type: string;
   challenge_display_name: string;
   phases: number;
-  profit_target_pct: number;
-  daily_drawdown_limit_pct: number;
-  max_drawdown_limit_pct: number;
+  profit_target: string;
+  daily_loss: string;
+  max_loss: string;
+  min_days: string;
   leverage: string;
-  platform: string;
-  profit_split_pct: number;
-  payout_schedule: string;
+  profit_split: string;
+  duration: string;
   user_created: boolean;
   provisioned_at: string;
 }
@@ -156,13 +162,14 @@ Email: ${result.user_email}
 Account Code: ${result.account_code}
 Account Size: ₹${result.account_size.toLocaleString()}
 Challenge: ${result.challenge_display_name}
-Platform: ${result.platform}
 Leverage: ${result.leverage}
-Profit Target: ${result.profit_target_pct}%
-Daily Drawdown: ${result.daily_drawdown_limit_pct}%
-Max Drawdown: ${result.max_drawdown_limit_pct}%
-Profit Split: ${result.profit_split_pct}%
-Payout: ${result.payout_schedule}
+Profit Target: ${result.profit_target}
+Daily Loss: ${result.daily_loss}
+Max Loss: ${result.max_loss}
+Min Days: ${result.min_days}
+Profit Split: ${result.profit_split}
+Duration: ${result.duration}
+Phases: ${result.phases}
 The trader logs in to the Terminal with their existing FundedWealth account.
 Terminal: https://terminal.fundedwealth.com
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
@@ -276,32 +283,36 @@ Terminal: https://terminal.fundedwealth.com
                 <p className="font-medium">{result.challenge_display_name}</p>
               </div>
               <div>
-                <p className="text-muted-foreground">Platform</p>
-                <p className="font-medium">{result.platform}</p>
-              </div>
-              <div>
                 <p className="text-muted-foreground">Leverage</p>
                 <p className="font-medium">{result.leverage}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Profit Target</p>
-                <p className="font-medium">{result.profit_target_pct}%</p>
+                <p className="font-medium">{result.profit_target}</p>
               </div>
               <div>
-                <p className="text-muted-foreground">Daily Drawdown</p>
-                <p className="font-medium">{result.daily_drawdown_limit_pct}%</p>
+                <p className="text-muted-foreground">Daily Loss</p>
+                <p className="font-medium">{result.daily_loss}</p>
               </div>
               <div>
-                <p className="text-muted-foreground">Max Drawdown</p>
-                <p className="font-medium">{result.max_drawdown_limit_pct}%</p>
+                <p className="text-muted-foreground">Max Loss</p>
+                <p className="font-medium">{result.max_loss}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Min Days</p>
+                <p className="font-medium">{result.min_days}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Profit Split</p>
-                <p className="font-medium">{result.profit_split_pct}%</p>
+                <p className="font-medium">{result.profit_split}</p>
               </div>
               <div>
-                <p className="text-muted-foreground">Payout Schedule</p>
-                <p className="font-medium capitalize">{result.payout_schedule}</p>
+                <p className="text-muted-foreground">Duration</p>
+                <p className="font-medium">{result.duration}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Phases</p>
+                <p className="font-medium">{result.phases}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">User Status</p>
@@ -404,38 +415,37 @@ Terminal: https://terminal.fundedwealth.com
                 {currentProduct && (
                   <div className="mt-2 p-3 rounded-md bg-muted/50 text-xs space-y-1">
                     <div className="grid grid-cols-3 gap-2">
-                      <span>Profit Target: <strong>{currentProduct.profitTargetPct}%</strong></span>
-                      <span>Daily DD: <strong>{currentProduct.dailyDrawdownLimitPct}%</strong></span>
-                      <span>Max DD: <strong>{currentProduct.maxDrawdownLimitPct}%</strong></span>
-                      <span>Min Days: <strong>{currentProduct.minTradingDays}</strong></span>
-                      <span>Max Days: <strong>{currentProduct.maxTradingDays ?? '∞'}</strong></span>
+                      <span>Profit Target: <strong>{currentProduct.profitTarget}</strong></span>
+                      <span>Daily Loss: <strong>{currentProduct.dailyLoss}</strong></span>
+                      <span>Max Loss: <strong>{currentProduct.maxLoss}</strong></span>
+                      <span>Min Days: <strong>{currentProduct.minDays}</strong></span>
+                      <span>Duration: <strong>{currentProduct.duration}</strong></span>
                       <span>Phases: <strong>{currentProduct.phases}</strong></span>
                       <span>Leverage: <strong>{currentProduct.leverage}</strong></span>
-                      <span>Platform: <strong>{currentProduct.platform}</strong></span>
-                      <span>Split: <strong>{currentProduct.profitSplitPct}%</strong></span>
+                      <span>Profit Split: <strong>{currentProduct.profitSplit}</strong></span>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Account Size — from product config */}
+              {/* Account Size — from production catalog (label + fee identical to website) */}
               <div>
                 <label className="block text-sm font-medium mb-1.5">
                   Account Size <span className="text-destructive">*</span>
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  {(currentProduct?.accountSizes || []).map((size) => (
+                  {(currentProduct?.sizes || []).map((s) => (
                     <button
-                      key={size}
+                      key={s.accountSize}
                       type="button"
-                      onClick={() => setAccountSize(size)}
+                      onClick={() => setAccountSize(s.accountSize)}
                       className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
-                        accountSize === size
+                        accountSize === s.accountSize
                           ? 'bg-primary text-primary-foreground border-primary'
                           : 'bg-background hover:bg-accent border-border'
                       }`}
                     >
-                      ₹{size.toLocaleString()}
+                      {s.sizeLabel}
                     </button>
                   ))}
                 </div>

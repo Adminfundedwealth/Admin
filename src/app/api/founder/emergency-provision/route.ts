@@ -28,21 +28,27 @@ export async function GET() {
 
     const catalog = await fetchCatalog();
 
-    // Map to the shape the existing Founder form expects.
+    // Forward the EXACT marketing display strings the website pricing cards show.
+    // Both the website (checkout.ts → @workspace/products) and this endpoint
+    // (catalog → @workspace/products) read the SAME source, so values are identical.
     const products = catalog.map((p) => ({
       slug: p.slug,
       displayName: p.displayLabel,
-      accountSizes: p.sizes.map((s) => s.accountSize),
-      phases: p.slug === '2step' ? 2 : 1,
-      profitTargetPct: p.rules.profitTargetPct,
-      dailyDrawdownLimitPct: p.rules.dailyLossLimitPct,
-      maxDrawdownLimitPct: p.rules.maxDrawdownPct,
-      minTradingDays: p.rules.minTradingDays,
-      maxTradingDays: p.rules.maxDaysAllowed,
+      profitTarget: p.profitTarget,
+      maxLoss: p.maxLoss,
+      dailyLoss: p.dailyLoss,
+      minDays: p.minDays,
       leverage: p.leverage,
-      platform: 'match-trader',
-      profitSplitPct: parseInt(p.profitSplit, 10) || 0,
-      payoutSchedule: p.duration,
+      profitSplit: p.profitSplit,
+      duration: p.duration,
+      phases: p.slug === '2step' ? 2 : 1,
+      sizes: p.sizes.map((s) => ({
+        accountSize: s.accountSize,
+        sizeLabel: s.sizeLabel,
+        fee: s.fee,
+        popular: s.popular,
+      })),
+      accountSizes: p.sizes.map((s) => s.accountSize),
     }));
 
     return NextResponse.json({ products });
@@ -220,7 +226,7 @@ export async function POST(request: NextRequest) {
       console.error('Audit log failed (non-fatal):', auditErr);
     }
 
-    // 7. Return success — all values originate from the production pipeline + catalog
+    // 7. Return success — display strings are IDENTICAL to the website pricing card
     return NextResponse.json({
       success: true,
       data: {
@@ -234,13 +240,13 @@ export async function POST(request: NextRequest) {
         challenge_type: product.slug,
         challenge_display_name: product.displayLabel,
         phases: product.slug === '2step' ? 2 : 1,
-        profit_target_pct: product.rules.profitTargetPct,
-        daily_drawdown_limit_pct: product.rules.dailyLossLimitPct,
-        max_drawdown_limit_pct: product.rules.maxDrawdownPct,
+        profit_target: product.profitTarget,
+        daily_loss: product.dailyLoss,
+        max_loss: product.maxLoss,
+        min_days: product.minDays,
         leverage: product.leverage,
-        platform: 'match-trader',
-        profit_split_pct: parseInt(product.profitSplit, 10) || 0,
-        payout_schedule: product.duration,
+        profit_split: product.profitSplit,
+        duration: product.duration,
         user_created: userCreated,
         provisioned_at: new Date().toISOString(),
       },
