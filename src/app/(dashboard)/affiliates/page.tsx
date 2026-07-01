@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/shared/data-table';
@@ -36,7 +37,7 @@ export default function AffiliatesPage() {
     try {
       const params = new URLSearchParams();
       if (filters.status) params.set('status', filters.status);
-      const res = await fetch(`/api/affiliates?${params.toString()}`);
+      const res = await apiFetch(`/api/affiliates?${params.toString()}`);
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setAffiliates(json.data || []);

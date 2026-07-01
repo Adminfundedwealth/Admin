@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -104,7 +105,7 @@ export default function UsersPage() {
       if (filters.dateTo) params.set('date_to', filters.dateTo);
       if (filters.country) params.set('country', filters.country);
 
-      const res = await fetch(`/api/users?${params.toString()}`);
+      const res = await apiFetch(`/api/users?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch users');
 
       const json = await res.json();

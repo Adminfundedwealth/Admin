@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/shared/loading-state';
 import { Shield, UserPlus, Copy, CheckCircle, AlertTriangle, Mail } from 'lucide-react';
+import { apiFetch } from '@/lib/api/fetch';
 
 /**
  * Emergency Manual Provision — Founder-only.
@@ -84,7 +85,7 @@ export default function EmergencyManualProvisionPage() {
     setProductsLoading(true);
     setProductsError('');
     try {
-      const res = await fetch('/api/founder/emergency-provision');
+      const res = await apiFetch('/api/founder/emergency-provision', { credentials: 'include' });
       if (!res.ok) {
         const json = await res.json();
         throw new Error(json.error?.message || 'Failed to load products');
@@ -126,9 +127,9 @@ export default function EmergencyManualProvisionPage() {
     setSubmitting(true);
 
     try {
-      const res = await fetch('/api/founder/emergency-provision', {
+      // apiFetch automatically reads __csrf_token cookie and sends x-csrf-token header
+      const res = await apiFetch('/api/founder/emergency-provision', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(),
           email: email.trim().toLowerCase(),

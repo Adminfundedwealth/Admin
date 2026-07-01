@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/shared/data-table';
@@ -76,7 +77,7 @@ export default function RiskPage() {
       if (filters.status) params.set('status', filters.status);
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
-      const res = await fetch(`/api/risk?${params.toString()}`);
+      const res = await apiFetch(`/api/risk?${params.toString()}`);
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setAlerts(json.data || []);
@@ -90,7 +91,7 @@ export default function RiskPage() {
 
   async function handleBatchAction(actionId: string, reason?: string) {
     for (const id of selectedIds) {
-      await fetch(`/api/risk/${id}/${actionId}`, {
+      await apiFetch(`/api/risk/${id}/${actionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: reason || actionId }),
@@ -290,7 +291,7 @@ function RiskHeatmap() {
 
   async function fetchHeatmap() {
     try {
-      const res = await fetch('/api/risk/heatmap');
+      const res = await apiFetch('/api/risk/heatmap');
       if (res.ok) {
         const data = await res.json();
         setHeatmapData(data.grid ?? []);
@@ -366,7 +367,7 @@ function CapitalExposureBar() {
 
   async function fetchExposure() {
     try {
-      const res = await fetch('/api/risk/exposure');
+      const res = await apiFetch('/api/risk/exposure');
       if (res.ok) setExposure(await res.json());
     } catch {}
   }

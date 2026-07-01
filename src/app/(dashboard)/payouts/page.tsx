@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect, useCallback } from 'react';
 import { DataTable } from '@/components/shared/data-table';
@@ -66,7 +67,7 @@ export default function PayoutsPage() {
       if (filters.status) params.set('status', filters.status);
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
-      const res = await fetch(`/api/payouts?${params.toString()}`);
+      const res = await apiFetch(`/api/payouts?${params.toString()}`);
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setPayouts(json.data || []);
@@ -79,7 +80,7 @@ export default function PayoutsPage() {
   // Batch action handler
   async function handleBatchAction(actionId: string, reason?: string) {
     for (const id of selectedIds) {
-      await fetch(`/api/payouts/${id}/${actionId}`, {
+      await apiFetch(`/api/payouts/${id}/${actionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: reason || actionId }),
@@ -99,7 +100,7 @@ export default function PayoutsPage() {
   }
 
   async function handleSingleAction(id: string, action: string) {
-    await fetch(`/api/payouts/${id}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: action }) });
+    await apiFetch(`/api/payouts/${id}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: action }) });
     fetchPayouts();
   }
 

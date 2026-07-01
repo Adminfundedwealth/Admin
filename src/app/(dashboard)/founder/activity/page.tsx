@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -43,7 +44,7 @@ export default function StaffActivityPage() {
     try {
       const params = new URLSearchParams();
       if (filter !== 'all') params.set('filter', filter);
-      const res = await fetch(`/api/founder/activity?${params.toString()}`);
+      const res = await apiFetch(`/api/founder/activity?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch activity');
       const json = await res.json();
       setActivities(json.data || []);

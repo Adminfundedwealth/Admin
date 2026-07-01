@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -129,7 +130,7 @@ export default function PaymentsPage() {
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
 
-      const res = await fetch(`/api/payments?${params.toString()}`);
+      const res = await apiFetch(`/api/payments?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch payments');
       const json = await res.json();
       setPayments(json.data || []);

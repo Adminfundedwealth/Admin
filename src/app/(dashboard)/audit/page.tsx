@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/shared/data-table';
@@ -36,7 +37,7 @@ export default function AuditPage() {
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
       if (filters.ip) params.set('ip_address', filters.ip);
-      const res = await fetch(`/api/audit?${params.toString()}`);
+      const res = await apiFetch(`/api/audit?${params.toString()}`);
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setRecords(json.data || []);

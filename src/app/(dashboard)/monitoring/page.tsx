@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,7 +18,7 @@ export default function MonitoringPage() {
   useEffect(() => { fetchHealth(); const i = setInterval(fetchHealth, 30000); return () => clearInterval(i); }, []);
   async function fetchHealth() {
     try {
-      const res = await fetch('/api/monitoring/health');
+      const res = await apiFetch('/api/monitoring/health');
       const json = await res.json();
       setServices(json.data || []);
     } catch {} finally { setLoading(false); }

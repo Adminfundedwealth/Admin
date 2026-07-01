@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -52,7 +53,7 @@ export default function NotificationsPage() {
     try {
       const params = new URLSearchParams();
       if (showUnreadOnly) params.set('unread', 'true');
-      const res = await fetch(`/api/founder/notifications?${params.toString()}`);
+      const res = await apiFetch(`/api/founder/notifications?${params.toString()}`);
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setNotifications(json.data || []);
@@ -66,7 +67,7 @@ export default function NotificationsPage() {
 
   async function markAllRead() {
     try {
-      await fetch('/api/founder/notifications', {
+      await apiFetch('/api/founder/notifications', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ markAll: true }),
@@ -80,7 +81,7 @@ export default function NotificationsPage() {
 
   async function markRead(ids: string[]) {
     try {
-      await fetch('/api/founder/notifications', {
+      await apiFetch('/api/founder/notifications', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids }),
