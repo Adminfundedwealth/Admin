@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/shared/data-table';
@@ -43,7 +44,7 @@ export default function TradesPage() {
       if (filters.dateTo) params.set('date_to', filters.dateTo);
       if (filters.pnlMin) params.set('pnl_min', filters.pnlMin);
       if (filters.pnlMax) params.set('pnl_max', filters.pnlMax);
-      const res = await fetch(`/api/trades?${params.toString()}`);
+      const res = await apiFetch(`/api/trades?${params.toString()}`);
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setTrades(json.data || []);

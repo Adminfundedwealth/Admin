@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -48,7 +49,7 @@ export default function EmergencyControlsPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/founder/emergency');
+      const res = await apiFetch('/api/founder/emergency');
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       const mapped = (json.data || []).map((c: any) => ({
@@ -74,7 +75,7 @@ export default function EmergencyControlsPage() {
     if (!control) return;
 
     try {
-      const res = await fetch('/api/founder/emergency', {
+      const res = await apiFetch('/api/founder/emergency', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, active: !control.active }),

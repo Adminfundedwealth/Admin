@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/shared/data-table';
@@ -37,7 +38,7 @@ export default function SupportPage() {
       const params = new URLSearchParams();
       if (filters.status) params.set('status', filters.status);
       if (filters.priority) params.set('priority', filters.priority);
-      const res = await fetch(`/api/support?${params.toString()}`);
+      const res = await apiFetch(`/api/support?${params.toString()}`);
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setTickets(json.data || []);

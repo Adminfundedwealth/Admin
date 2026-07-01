@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -47,7 +48,7 @@ export default function DataExportsPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/founder/exports');
+      const res = await apiFetch('/api/founder/exports');
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setExports(json.data || []);
@@ -61,7 +62,7 @@ export default function DataExportsPage() {
   async function triggerExport(sourceCenter: string) {
     setExporting(sourceCenter);
     try {
-      const res = await fetch('/api/export', {
+      const res = await apiFetch('/api/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourceCenter, filters: {} }),

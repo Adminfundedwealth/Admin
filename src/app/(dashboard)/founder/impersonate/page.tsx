@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -29,7 +30,7 @@ export default function ImpersonatePage() {
     if (searchQuery.length < 2) return;
     setLoading(true);
     try {
-      const res = await fetch('/api/staff');
+      const res = await apiFetch('/api/staff');
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       // Client-side filter since staff list is typically small

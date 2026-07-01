@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -142,7 +143,7 @@ export default function ManualProvisionPage() {
     setProvisionResult(null);
 
     try {
-      const res = await fetch(`/api/provision/manual?search=${encodeURIComponent(search)}`);
+      const res = await apiFetch(`/api/provision/manual?search=${encodeURIComponent(search)}`);
       const json = await res.json();
       if (!res.ok) {
         setSearchError(json.error?.message || 'Search failed');
@@ -193,7 +194,7 @@ export default function ManualProvisionPage() {
     setProvisionError('');
 
     try {
-      const res = await fetch('/api/provision/manual', {
+      const res = await apiFetch('/api/provision/manual', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -266,7 +267,7 @@ Please change your password after first login.`;
     if (!provisionResult) return;
     setResending(true);
     try {
-      const res = await fetch('/api/provision/manual/resend', {
+      const res = await apiFetch('/api/provision/manual/resend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

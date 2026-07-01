@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { Suspense } from 'react';
 import { KPICards } from '@/modules/executive/components/kpi-cards';
@@ -118,7 +119,7 @@ function QueueSection() {
 
   async function fetchQueues() {
     try {
-      const res = await fetch('/api/executive/queues');
+      const res = await apiFetch('/api/executive/queues');
       if (res.ok) {
         const data = await res.json();
         setQueues(data);
@@ -192,7 +193,7 @@ function RiskHealthSection() {
 
   async function fetchRisk() {
     try {
-      const res = await fetch('/api/executive/risk-health');
+      const res = await apiFetch('/api/executive/risk-health');
       if (res.ok) {
         const data = await res.json();
         setRisk(data);
@@ -250,7 +251,7 @@ function SystemHealthBar() {
 
   async function fetchHealth() {
     try {
-      const res = await fetch('/api/executive/system-health');
+      const res = await apiFetch('/api/executive/system-health');
       if (res.ok) {
         const data = await res.json();
         if (data.services) setServices(data.services);
@@ -323,7 +324,7 @@ function LifecycleEvents() {
 
   async function fetchLifecycle() {
     try {
-      const res = await fetch('/api/integration/lifecycle?hours=12');
+      const res = await apiFetch('/api/integration/lifecycle?hours=12');
       if (res.ok) {
         const data = await res.json();
         setEvents(data.data?.slice(0, 8) || []);

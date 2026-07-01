@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/shared/data-table';
@@ -41,7 +42,7 @@ export default function OrdersPage() {
       if (filters.orderType) params.set('order_type', filters.orderType);
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
-      const res = await fetch(`/api/orders?${params.toString()}`);
+      const res = await apiFetch(`/api/orders?${params.toString()}`);
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setOrders(json.data || []);

@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -50,7 +51,7 @@ export default function FeatureFlagsPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/founder/flags');
+      const res = await apiFetch('/api/founder/flags');
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setFlags(json.data || []);
@@ -64,7 +65,7 @@ export default function FeatureFlagsPage() {
   async function toggleFlag(id: string, currentEnabled: boolean) {
     setToggling(id);
     try {
-      const res = await fetch('/api/founder/flags', {
+      const res = await apiFetch('/api/founder/flags', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, enabled: !currentEnabled }),
@@ -84,7 +85,7 @@ export default function FeatureFlagsPage() {
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      const res = await fetch('/api/founder/flags', {
+      const res = await apiFetch('/api/founder/flags', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName.trim(), description: newDesc.trim() || null, scope: newScope, enabled: false }),

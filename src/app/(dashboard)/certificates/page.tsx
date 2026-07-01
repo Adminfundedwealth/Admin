@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/shared/data-table';
@@ -33,7 +34,7 @@ export default function CertificatesPage() {
       if (filters.type) params.set('type', filters.type);
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
-      const res = await fetch(`/api/certificates?${params.toString()}`);
+      const res = await apiFetch(`/api/certificates?${params.toString()}`);
       const json = await res.json();
       setCerts(json.data || []);
       setTotalCount(json.meta?.totalCount || 0);

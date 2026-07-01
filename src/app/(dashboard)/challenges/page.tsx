@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/shared/data-table';
@@ -44,7 +45,7 @@ export default function ChallengesPage() {
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
       if (filters.user) params.set('user', filters.user);
-      const res = await fetch(`/api/challenges?${params.toString()}`);
+      const res = await apiFetch(`/api/challenges?${params.toString()}`);
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setChallenges(json.data || []);
@@ -55,14 +56,14 @@ export default function ChallengesPage() {
 
   async function handleBatchAction(actionId: string, reason?: string) {
     for (const id of selectedIds) {
-      await fetch(`/api/challenges/${id}/${actionId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: reason || actionId }) });
+      await apiFetch(`/api/challenges/${id}/${actionId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: reason || actionId }) });
     }
     setRowSelection({});
     fetchChallenges();
   }
 
   async function handleSingleAction(id: string, action: string) {
-    await fetch(`/api/challenges/${id}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: `Inline ${action} action` }) });
+    await apiFetch(`/api/challenges/${id}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: `Inline ${action} action` }) });
     fetchChallenges();
   }
 

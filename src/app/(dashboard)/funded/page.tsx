@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -109,7 +110,7 @@ export default function FundedPage() {
       const params = new URLSearchParams();
       if (filters.status) params.set('status', filters.status);
       if (filters.eligible) params.set('payout_eligible', filters.eligible);
-      const res = await fetch(`/api/funded?${params.toString()}`);
+      const res = await apiFetch(`/api/funded?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch');
       const json = await res.json();
       setAccounts(json.data || []);

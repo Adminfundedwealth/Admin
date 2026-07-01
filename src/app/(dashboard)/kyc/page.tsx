@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/shared/data-table';
@@ -35,7 +36,7 @@ export default function KYCPage() {
       const params = new URLSearchParams();
       if (filters.status) params.set('status', filters.status);
       if (filters.overdue) params.set('overdue', filters.overdue);
-      const res = await fetch(`/api/kyc?${params.toString()}`);
+      const res = await apiFetch(`/api/kyc?${params.toString()}`);
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setSubmissions(json.data || []);
@@ -46,7 +47,7 @@ export default function KYCPage() {
 
   async function handleBatchAction(actionId: string, reason?: string) {
     for (const id of selectedIds) {
-      await fetch(`/api/kyc/${id}/${actionId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: reason || actionId }) });
+      await apiFetch(`/api/kyc/${id}/${actionId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: reason || actionId }) });
     }
     setRowSelection({});
     fetchKYC();

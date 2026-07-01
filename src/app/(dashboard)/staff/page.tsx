@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/shared/data-table';
@@ -57,7 +58,7 @@ export default function StaffPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/staff');
+      const res = await apiFetch('/api/staff');
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setStaff(json.data || []);
@@ -70,7 +71,7 @@ export default function StaffPage() {
 
   async function fetchRoles() {
     try {
-      const res = await fetch('/api/roles');
+      const res = await apiFetch('/api/roles');
       if (res.ok) {
         const json = await res.json();
         setRoles(json.data || []);
@@ -83,7 +84,7 @@ export default function StaffPage() {
     if (!createForm.name || !createForm.email || createForm.roleIds.length === 0) return;
     setCreating(true);
     try {
-      const res = await fetch('/api/staff', {
+      const res = await apiFetch('/api/staff', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(createForm),
@@ -105,7 +106,7 @@ export default function StaffPage() {
   async function handleStatusChange(staffId: string, newStatus: string) {
     setActionLoading(staffId);
     try {
-      const res = await fetch(`/api/staff/${staffId}`, {
+      const res = await apiFetch(`/api/staff/${staffId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -118,7 +119,7 @@ export default function StaffPage() {
   async function handleResetPassword(staffId: string) {
     setActionLoading(staffId);
     try {
-      const res = await fetch(`/api/staff/${staffId}/reset-password`, { method: 'POST' });
+      const res = await apiFetch(`/api/staff/${staffId}/reset-password`, { method: 'POST' });
       const json = await res.json();
       if (res.ok) {
         alert(`Temporary password: ${json.tempPassword}\nExpires in ${json.expiresIn}`);
@@ -131,7 +132,7 @@ export default function StaffPage() {
 
   async function handleAssignRole(staffId: string, roleId: string) {
     try {
-      const res = await fetch(`/api/staff/${staffId}/roles`, {
+      const res = await apiFetch(`/api/staff/${staffId}/roles`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roleId }),
@@ -142,7 +143,7 @@ export default function StaffPage() {
 
   async function handleRemoveRole(staffId: string, roleId: string) {
     try {
-      const res = await fetch(`/api/staff/${staffId}/roles`, {
+      const res = await apiFetch(`/api/staff/${staffId}/roles`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roleId }),

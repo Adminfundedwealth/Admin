@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api/fetch';
 
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/shared/data-table';
@@ -53,7 +54,7 @@ export default function CouponsPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/coupons');
+      const res = await apiFetch('/api/coupons');
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setCoupons(json.data || []);
@@ -68,7 +69,7 @@ export default function CouponsPage() {
     e.preventDefault();
     setCreating(true);
     try {
-      const res = await fetch('/api/coupons', {
+      const res = await apiFetch('/api/coupons', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -92,7 +93,7 @@ export default function CouponsPage() {
   }
 
   async function toggleCoupon(id: string, currentActive: boolean) {
-    await fetch('/api/coupons', {
+    await apiFetch('/api/coupons', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, active: !currentActive }),
