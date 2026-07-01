@@ -184,8 +184,40 @@ export async function POST(request: NextRequest) {
       });
     } catch (err) {
       const status = err instanceof MainSiteError ? err.status : 500;
+      const message = err instanceof Error ? err.message : 'Provisioning failed';
+
+      // Check if there is already an active trading account (duplicate case)
+      const { data: existingAccounts } = await supabase
+        .from('trading_accounts')
+        .select('id, account_code, plan, status, virtual_balance, created_at')
+        .eq('user_id', userId)
+        .in('status', ['active'])
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (existingAccounts && existingAccounts.length > 0) {
+        const existing = existingAccounts[0];
+        return NextResponse.json({
+          success: false,
+          existing_account: true,
+          data: {
+            user_id: userId,
+            user_email: email,
+            user_name: name,
+            trading_account_id: existing.id,
+            terminal_login_id: existing.account_code,
+            terminal_email: email.toLowerCase(),
+            terminal_url: 'https://terminal.fundedwealth.com',
+            account_size: existing.virtual_balance,
+            challenge_type: existing.plan,
+            status: existing.status,
+          },
+          error: { code: 'EXISTING_ACCOUNT', message: `This email already has an active trading account (${existing.account_code}). Use the actions below to manage it.` },
+        }, { status: 409 });
+      }
+
       return NextResponse.json(
-        { error: { code: 'PROVISION_FAILED', message: err instanceof Error ? err.message : 'Provisioning failed' } },
+        { error: { code: 'PROVISION_FAILED', message } },
         { status: status >= 400 ? status : 500 },
       );
     }
@@ -226,7 +258,21 @@ export async function POST(request: NextRequest) {
       console.error('Audit log failed (non-fatal):', auditErr);
     }
 
-    // 7. Return success — display strings are IDENTICAL to the website pricing card
+    // 7. Look up the trading account to get the login ID
+    // accountCode is the Match-Trader login — the same value the Terminal uses
+    let terminalLoginId = result.accountCode;
+
+    // If accountCode is not in result (existing account path), look it up from DB
+    if (!terminalLoginId && result.tradingAccountId) {
+      const { data: ta } = await supabase
+        .from('trading_accounts')
+        .select('account_code')
+        .eq('id', result.tradingAccountId)
+        .single();
+      terminalLoginId = ta?.account_code ?? result.accountCode;
+    }
+
+    // 8. Return success
     return NextResponse.json({
       success: true,
       data: {
@@ -235,7 +281,12 @@ export async function POST(request: NextRequest) {
         user_name: name,
         challenge_account_id: result.challengeAccountId,
         trading_account_id: result.tradingAccountId,
-        account_code: result.accountCode,
+        // Terminal credentials — password is set by Match-Trader when account activates
+        // The trader receives credentials via email from the Terminal platform
+        terminal_login_id: terminalLoginId,
+        terminal_email: email.toLowerCase(),
+        terminal_url: 'https://terminal.fundedwealth.com',
+        // Account details from production catalog
         account_size: result.accountSize,
         challenge_type: product.slug,
         challenge_display_name: product.displayLabel,
