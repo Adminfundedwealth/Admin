@@ -121,7 +121,7 @@ export async function POST(
     await supabase.from('challenge_timeline').insert({
       challenge_account_id: params.id,
       action,
-      actor_id: null, // TODO: get from session
+      actor_id: staff.id,
       reason: parsed.data.reason,
       metadata: { previous_status: challenge.status, new_status: newStatus },
     });

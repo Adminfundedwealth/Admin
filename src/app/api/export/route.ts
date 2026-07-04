@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getAuthenticatedStaff } from '@/lib/auth/get-staff';
 
 /**
  * POST /api/export
@@ -9,10 +10,17 @@ import { createAdminClient } from '@/lib/supabase/admin';
  */
 export async function POST(request: NextRequest) {
   try {
+    const staff = await getAuthenticatedStaff();
+    if (!staff) {
+      return NextResponse.json(
+        { error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const { sourceCenter, filters } = body;
     const supabase = createAdminClient();
-    const staffId = '00000000-0000-0000-0000-000000000000'; // TODO: from session
 
     // For now, return placeholder response
     // In production: count records, decide sync/async, generate CSV
@@ -25,9 +33,13 @@ export async function POST(request: NextRequest) {
 
     // Log export in audit
     await supabase.from('audit_records').insert({
-      actor_id: staffId, actor_role: 'staff', action: 'data.export',
-      target_entity_type: sourceCenter, target_entity_id: 'export',
-      previous_state: null, new_state: { filters, recordCount },
+      actor_id: staff.id,
+      actor_role: staff.roles[0] || 'staff',
+      action: 'data.export',
+      target_entity_type: sourceCenter,
+      target_entity_id: 'export',
+      previous_state: null,
+      new_state: { filters, recordCount },
       ip_address: request.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1',
       device_info: { userAgent: request.headers.get('user-agent') || '' },
     });
@@ -38,8 +50,11 @@ export async function POST(request: NextRequest) {
     } else {
       // Async — create background job
       await supabase.from('data_exports').insert({
-        staff_id: staffId, source_center: sourceCenter, filters,
-        record_count: recordCount, status: 'processing',
+        staff_id: staff.id,
+        source_center: sourceCenter,
+        filters,
+        record_count: recordCount,
+        status: 'processing',
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       });
       return NextResponse.json({ message: 'Export processing. You will be notified when ready.', recordCount, type: 'async' }, { status: 202 });

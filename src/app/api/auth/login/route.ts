@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { notificationEngine } from '@/lib/notifications/engine';
 import { z } from 'zod';
 
 const loginSchema = z.object({
@@ -103,7 +104,16 @@ export async function POST(request: NextRequest) {
       });
 
       if (newAttempts >= 5) {
-        // TODO: Notify Founder via NotificationEngine
+        // Notify Founders of account lockout
+        notificationEngine.broadcast({
+          permission: 'staff.manage',
+          priority: 'high',
+          title: 'Staff Account Locked',
+          message: `Staff account ${staff.email} locked after 5 failed login attempts from IP ${getClientIP(request)}`,
+          eventSource: 'auth.lockout',
+          linkTo: '/staff',
+        }).catch(err => console.error('Failed to notify founders of lockout:', err));
+        
         return NextResponse.json(
           { error: { code: 'ACCOUNT_LOCKED', message: 'Account locked for 30 minutes due to too many failed attempts.' } },
           { status: 403 }
