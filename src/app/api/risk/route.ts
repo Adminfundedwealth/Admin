@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     const pageSize = 20;
     const offset = (page - 1) * pageSize;
 
-    let query = supabase.from('risk_alerts').select('*', { count: 'exact' });
+    let query = supabase.from('risk_events').select('*', { count: 'exact' });
     if (severity) query = query.eq('severity', severity);
     if (status) query = query.eq('status', status);
     if (dateFrom) query = query.gte('created_at', dateFrom);

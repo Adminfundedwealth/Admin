@@ -16,9 +16,9 @@ export async function GET(request: NextRequest) {
 
     let query = supabase.from('certificates').select('*', { count: 'exact' });
     if (type) query = query.eq('type', type);
-    if (dateFrom) query = query.gte('generated_at', dateFrom);
-    if (dateTo) query = query.lte('generated_at', dateTo + 'T23:59:59.999Z');
-    query = query.order('generated_at', { ascending: false }).range(offset, offset + pageSize - 1);
+    if (dateFrom) query = query.gte('issued_at', dateFrom);
+    if (dateTo) query = query.lte('issued_at', dateTo + 'T23:59:59.999Z');
+    query = query.order('issued_at', { ascending: false }).range(offset, offset + pageSize - 1);
 
     const { data, error, count } = await query;
     if (error) return NextResponse.json({ error: { code: 'QUERY_ERROR', message: error.message } }, { status: 500 });
