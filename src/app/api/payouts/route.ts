@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     const pageSize = Math.min(parseInt(params.get('page_size') || '20', 10), 100);
     const offset = (page - 1) * pageSize;
 
-    let query = supabase.from('payout_requests').select('*', { count: 'exact' });
+    let query = supabase.from('payout_reviews').select('*', { count: 'exact' });
 
     if (status) query = query.eq('status', status);
     if (dateFrom) query = query.gte('created_at', dateFrom);
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     const startOfDay = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
 
     const { data: allPayouts } = await supabase
-      .from('payout_requests')
+      .from('payout_reviews')
       .select('status, calculated_payout, created_at, completed_at, rejection_reason');
 
     const completed = (allPayouts || []).filter(p => p.status === 'payment_completed');
