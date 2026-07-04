@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { notificationEngine } from '@/lib/notifications/engine';
 import { z } from 'zod';
 import { decrypt, isEncrypted } from '@/lib/security/encryption';
 
@@ -116,7 +117,15 @@ export async function POST(request: NextRequest) {
           .update({ invalidated_at: new Date().toISOString() })
           .eq('id', challengeSession.id);
 
-        // TODO: Notify Founder via NotificationEngine
+        // Notify Founders of 2FA lockout
+        notificationEngine.broadcast({
+          permission: 'staff.manage',
+          priority: 'high',
+          title: 'Staff Account Locked - 2FA Failures',
+          message: `Staff account ${staff.email} locked after 3 failed 2FA attempts from IP ${getClientIP(request)}`,
+          eventSource: 'auth.2fa_lockout',
+          linkTo: '/staff',
+        }).catch(err => console.error('Failed to notify founders of 2FA lockout:', err));
 
         return NextResponse.json(
           { error: { code: 'ACCOUNT_LOCKED', message: 'Account locked for 15 minutes due to failed 2FA attempts.' } },

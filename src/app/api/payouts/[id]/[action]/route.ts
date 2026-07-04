@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { getAuthenticatedStaff } from '@/lib/auth/get-staff';
 import { sendPayoutApprovedEmail, sendPayoutRejectedEmail } from '@/lib/email/send-trader-email';
 import { notifyPayoutApproved, notifyPayoutRejected } from '@/lib/webhooks/outgoing';
+import { notificationEngine } from '@/lib/notifications/engine';
 import { z } from 'zod';
 
 const VALID_TRANSITIONS: Record<string, Record<string, string>> = {
@@ -80,7 +81,14 @@ export async function POST(
       updates.rejection_reason = parsed.data.reason;
       updates.status = 'payment_failed'; // Rejected = terminal
       newStatus = 'payment_failed';
-      // TODO: Send notification to trader
+      
+      // Notify trader of rejection
+      try {
+        await sendPayoutRejectedEmail(payout.user_id, payout.calculated_payout || payout.requested_amount, parsed.data.reason);
+        await notifyPayoutRejected(params.id, payout.user_id, parsed.data.reason);
+      } catch (notifyErr) {
+        console.error('Trader notification failed (non-fatal):', notifyErr);
+      }
     } else if (action === 'retry') {
       if (payout.status !== 'payment_failed') {
         return NextResponse.json({ error: { code: 'INVALID_TRANSITION', message: 'Can only retry failed payments' } }, { status: 422 });
