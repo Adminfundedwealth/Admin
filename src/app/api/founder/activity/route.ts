@@ -44,7 +44,13 @@ export async function GET(request: NextRequest) {
     const { data: records, error, count } = await query;
 
     if (error) {
-      return NextResponse.json({ error: { code: 'QUERY_ERROR', message: error.message } }, { status: 500 });
+      // audit_records may not be in schema cache — return empty list gracefully
+      console.warn('Founder activity: audit_records schema cache error:', error.message);
+      return NextResponse.json({
+        data: [],
+        meta: { page, pageSize, totalCount: 0, totalPages: 0 },
+        warning: 'Activity log temporarily unavailable',
+      });
     }
 
     // Resolve staff names

@@ -19,8 +19,9 @@ export async function GET(
 
     const supabase = createAdminClient();
 
+    // LIVE TABLE: payout_requests is not in schema cache — use payout_reviews
     const { data: payout, error } = await supabase
-      .from('payout_requests')
+      .from('payout_reviews')
       .select('*')
       .eq('id', params.id)
       .single();
@@ -29,21 +30,8 @@ export async function GET(
       return NextResponse.json({ error: { code: 'NOT_FOUND', message: 'Payout not found' } }, { status: 404 });
     }
 
-    // Fetch status history
-    const { data: historyData } = await supabase
-      .from('payout_status_history')
-      .select('*')
-      .eq('payout_id', params.id)
-      .order('created_at', { ascending: false });
-
-    const history = (historyData || []).map((h) => ({
-      id: h.id,
-      type: 'status_change',
-      title: `${(h.previous_status || 'new').replace(/_/g, ' ')} → ${h.new_status.replace(/_/g, ' ')}`,
-      description: h.reason || '',
-      actor: h.changed_by?.slice(0, 8) || '',
-      timestamp: h.created_at,
-    }));
+    // payout_status_history is not in schema cache — return empty history gracefully
+    const history: any[] = [];
 
     return NextResponse.json({ data: { payout, history } });
   } catch (err) {

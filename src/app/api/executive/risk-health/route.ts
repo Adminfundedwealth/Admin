@@ -2,35 +2,33 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { requirePermissionInHandler } from '@/lib/security/require-auth';
 
 /**
  * GET /api/executive/risk-health
  * Returns risk health summary: accounts at risk, highest severity, capital exposure, breaches today.
- * Reads: risk_alerts, challenge_accounts (status='passed' as funded proxy)
- * Auth: Handled by middleware (session_token cookie)
  *
- * NOTE: funded_accounts table does not exist. Using challenge_accounts with status='passed'.
+ * LIVE TABLE CORRECTIONS:
+ * - risk_alerts not in schema cache → use risk_events
+ *   risk_events cols: id, trading_account_id, challenge_id, event_type, severity, acknowledged, created_at
+ * - funded_accounts not in schema cache → use challenge_accounts status=passed
  */
 export async function GET() {
   try {
     const supabase = createAdminClient();
-
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
     const [openAlertsRes, breachesTodayRes, fundedRes] = await Promise.all([
-      // All open risk alerts
       supabase
-        .from('risk_alerts')
-        .select('id, severity, account_id')
-        .eq('status', 'open'),
-      // Breaches created today
+        .from('risk_events')
+        .select('id, severity, trading_account_id')
+        .eq('acknowledged', false),
       supabase
-        .from('risk_alerts')
+        .from('risk_events')
         .select('id', { count: 'exact', head: true })
-        .eq('status', 'open')
+        .eq('acknowledged', false)
         .gte('created_at', todayStart.toISOString()),
-      // All "funded" accounts (challenge_accounts with status=passed)
       supabase
         .from('challenge_accounts')
         .select('id, initial_balance, current_balance')
@@ -39,15 +37,15 @@ export async function GET() {
 
     const openAlerts = openAlertsRes.data ?? [];
 
-    // Unique accounts at risk
+    // Unique trading accounts with open risk events
     const uniqueAccountIds = new Set<string>();
     for (const alert of openAlerts) {
-      if (alert.account_id) uniqueAccountIds.add(alert.account_id);
+      if (alert.trading_account_id) uniqueAccountIds.add(alert.trading_account_id);
     }
     const accountsAtRisk = uniqueAccountIds.size;
 
     // Highest severity
-    const severityOrder = ['critical', 'high', 'medium', 'low'];
+    const severityOrder = ['critical', 'high', 'medium', 'low', 'warning', 'info'];
     let highestSeverity = 'none';
     for (const level of severityOrder) {
       if (openAlerts.some((a) => a.severity === level)) {
@@ -56,11 +54,12 @@ export async function GET() {
       }
     }
 
-    // Capital exposure calculation
+    // Capital exposure: passed challenge_accounts as funded proxy
     const fundedAccounts = fundedRes.data ?? [];
     const totalDeployed = fundedAccounts.reduce((sum: number, a: any) => sum + (a.initial_balance ?? 0), 0);
-    const atRiskAccounts = fundedAccounts.filter((a: any) => uniqueAccountIds.has(a.id));
-    const capitalAtRisk = atRiskAccounts.reduce((sum: number, a: any) => sum + (a.initial_balance ?? 0), 0);
+    const capitalAtRisk = fundedAccounts
+      .filter((a: any) => uniqueAccountIds.has(a.id))
+      .reduce((sum: number, a: any) => sum + (a.initial_balance ?? 0), 0);
     const capitalExposure = totalDeployed > 0 ? (capitalAtRisk / totalDeployed) * 100 : 0;
 
     return NextResponse.json({
@@ -71,11 +70,6 @@ export async function GET() {
     });
   } catch (error) {
     console.error('[Executive Risk Health] Error:', error);
-    return NextResponse.json({
-      accountsAtRisk: 0,
-      highestSeverity: 'none',
-      capitalExposure: 0,
-      breachesToday: 0,
-    });
+    return NextResponse.json({ accountsAtRisk: 0, highestSeverity: 'none', capitalExposure: 0, breachesToday: 0 });
   }
 }

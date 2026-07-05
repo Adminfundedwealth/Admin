@@ -11,8 +11,7 @@ export async function GET() {
   try {
     const supabase = createAdminClient();
 
-    // Fetch recent audit records as activity events
-    // Significant events: registrations, purchases, pass/fail, funded, payouts, KYC, risk
+    // audit_records may not be in schema cache — return empty list gracefully
     const { data: records } = await supabase
       .from('audit_records')
       .select('id, action, target_entity_type, target_entity_id, timestamp, metadata')

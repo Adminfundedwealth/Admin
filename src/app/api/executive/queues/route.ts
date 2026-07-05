@@ -45,10 +45,11 @@ export async function GET() {
   try {
     const supabase = createAdminClient();
 
-    // Parallel queries for all queues
+    // Parallel queries — LIVE TABLE CORRECTIONS:
+    // payout_requests → payout_reviews, risk_alerts → risk_events
     const [payoutsRes, kycRes, ticketsRes, riskRes] = await Promise.all([
       supabase
-        .from('payout_requests')
+        .from('payout_reviews')
         .select('id, priority, created_at', { count: 'exact' })
         .in('status', ['request_received', 'under_review'])
         .order('created_at', { ascending: true }),
@@ -62,10 +63,11 @@ export async function GET() {
         .select('id, priority, created_at', { count: 'exact' })
         .in('status', ['open', 'in_progress'])
         .order('created_at', { ascending: true }),
+      // risk_events cols: id, severity, created_at, acknowledged
       supabase
-        .from('risk_alerts')
+        .from('risk_events')
         .select('id, severity, created_at', { count: 'exact' })
-        .eq('status', 'open')
+        .eq('acknowledged', false)
         .order('created_at', { ascending: true }),
     ]);
 

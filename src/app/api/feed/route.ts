@@ -1,7 +1,8 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { requirePermissionInHandler } from '@/lib/security/require-auth';
 
 /**
  * GET /api/feed — Returns recent operations events compiled from existing tables.
@@ -10,12 +11,10 @@ import { createClient } from '@/lib/supabase/server';
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    const { error: authError } = await requirePermissionInHandler('challenges.view');
+    if (authError) return authError;
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const supabase = createAdminClient();
 
     const { searchParams } = new URL(request.url);
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') ?? '25', 10)));
@@ -30,8 +29,9 @@ export async function GET(request: NextRequest) {
         .gte('created_at', since)
         .order('created_at', { ascending: false })
         .limit(10),
+      // LIVE TABLE: payout_requests not in schema cache → payout_reviews
       supabase
-        .from('payout_requests')
+        .from('payout_reviews')
         .select('id, status, created_at, updated_at')
         .gte('created_at', since)
         .order('created_at', { ascending: false })
@@ -42,9 +42,11 @@ export async function GET(request: NextRequest) {
         .gte('created_at', since)
         .order('created_at', { ascending: false })
         .limit(10),
+      // LIVE TABLE: risk_alerts not in schema cache → risk_events
+      // risk_events cols: id, event_type, severity, acknowledged, created_at
       supabase
-        .from('risk_alerts')
-        .select('id, severity, alert_type, created_at')
+        .from('risk_events')
+        .select('id, severity, event_type, created_at')
         .gte('created_at', since)
         .order('created_at', { ascending: false })
         .limit(10),
@@ -116,12 +118,12 @@ export async function GET(request: NextRequest) {
       events.push({
         id: `risk-${row.id}`,
         type: 'risk_alert',
-        description: `Risk alert: ${row.alert_type} (${row.severity})`,
+        description: `Risk event: ${row.event_type} (${row.severity})`,
         actor: 'System',
         timestamp: row.created_at,
         severity: row.severity === 'critical' || row.severity === 'high' ? 'critical' : 'warning',
         entityId: row.id,
-        entityType: 'risk_alert',
+        entityType: 'risk_event',
       });
     }
 

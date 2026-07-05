@@ -1,67 +1,72 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { requirePermissionInHandler } from '@/lib/security/require-auth';
 
 /**
  * GET /api/risk/heatmap
  * Returns risk heatmap data: accounts grouped by size tier (x) and drawdown usage % (y).
- * Uses existing tables: funded_accounts, risk_alerts.
+ *
+ * LIVE TABLE CORRECTIONS:
+ * - funded_accounts not in schema cache → use challenge_accounts status=passed
+ *   challenge_accounts cols: id, initial_balance, current_balance, max_drawdown_pct, daily_loss_limit_pct
+ * - risk_alerts not in schema cache → use risk_events
+ *   risk_events cols: id, trading_account_id, severity, acknowledged
+ * - Auth: custom session (requirePermissionInHandler), not Supabase Auth
+ *
  * Grid: 4 size tiers × 4 drawdown bands.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    const { error: authError } = await requirePermissionInHandler('risk.view');
+    if (authError) return authError;
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const supabase = createAdminClient();
 
-    // Get all active funded accounts with their drawdown usage
+    // Use challenge_accounts status=passed as funded proxy
     const { data: accounts } = await supabase
-      .from('funded_accounts')
-      .select('id, balance, max_drawdown, current_drawdown')
-      .eq('status', 'active');
+      .from('challenge_accounts')
+      .select('id, initial_balance, current_balance, max_drawdown_pct')
+      .eq('status', 'passed');
 
-    // Get accounts with open risk alerts
+    // risk_events: get trading_account_ids with unacknowledged events
     const { data: alerts } = await supabase
-      .from('risk_alerts')
-      .select('account_id')
-      .eq('status', 'open');
+      .from('risk_events')
+      .select('trading_account_id')
+      .eq('acknowledged', false);
 
-    const atRiskAccountIds = new Set((alerts ?? []).map((a) => a.account_id));
+    const atRiskAccountIds = new Set((alerts ?? []).map((a) => a.trading_account_id).filter(Boolean));
 
-    // Size tiers: $10K, $25K, $50K, $100K+
+    // Size tiers (INR): ≤₹25K, ≤₹50K, ≤₹100K, >₹100K
     // Drawdown bands: 0-25%, 25-50%, 50-75%, 75-100%
     const grid = [
-      [0, 0, 0, 0], // 0-25% drawdown
-      [0, 0, 0, 0], // 25-50%
-      [0, 0, 0, 0], // 50-75%
-      [0, 0, 0, 0], // 75-100%
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
     ];
 
     for (const account of accounts ?? []) {
-      // Only count accounts that have open risk alerts
-      if (!atRiskAccountIds.has(account.id)) continue;
-
-      // Determine size tier column
-      const balance = account.balance ?? 0;
+      // Size tier column
+      const balance = account.initial_balance ?? 0;
       let col: number;
-      if (balance <= 15000) col = 0;       // ~$10K tier
-      else if (balance <= 35000) col = 1;  // ~$25K tier
-      else if (balance <= 75000) col = 2;  // ~$50K tier
-      else col = 3;                         // $100K+ tier
+      if (balance <= 25000) col = 0;
+      else if (balance <= 50000) col = 1;
+      else if (balance <= 100000) col = 2;
+      else col = 3;
 
-      // Determine drawdown band row
-      const maxDD = account.max_drawdown ?? 1;
-      const currentDD = account.current_drawdown ?? 0;
-      const ddPercent = maxDD > 0 ? (currentDD / maxDD) * 100 : 0;
+      // Drawdown band row — derive from current vs initial balance
+      const initial = account.initial_balance ?? 1;
+      const current = account.current_balance ?? initial;
+      const drawdownUsedPct = initial > 0 ? ((initial - current) / initial) * 100 : 0;
+      const maxDdPct = account.max_drawdown_pct ?? 10;
+      const ddRatio = maxDdPct > 0 ? (drawdownUsedPct / maxDdPct) * 100 : 0;
 
       let row: number;
-      if (ddPercent <= 25) row = 0;
-      else if (ddPercent <= 50) row = 1;
-      else if (ddPercent <= 75) row = 2;
+      if (ddRatio <= 25) row = 0;
+      else if (ddRatio <= 50) row = 1;
+      else if (ddRatio <= 75) row = 2;
       else row = 3;
 
       grid[row][col]++;
@@ -70,6 +75,6 @@ export async function GET() {
     return NextResponse.json({ grid });
   } catch (error) {
     console.error('[Risk Heatmap] Error:', error);
-    return NextResponse.json({ grid: [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]] });
+    return NextResponse.json({ grid: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]] });
   }
 }

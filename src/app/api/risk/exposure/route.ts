@@ -1,41 +1,40 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { requirePermissionInHandler } from '@/lib/security/require-auth';
 
 /**
  * GET /api/risk/exposure
  * Returns capital exposure: capital at risk, total deployed, exposure ratio.
- * Uses existing tables: funded_accounts, risk_alerts.
+ * Uses existing tables: challenge_accounts (funded_accounts does not exist), risk_alerts.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    const { error: authError } = await requirePermissionInHandler('risk.view');
+    if (authError) return authError;
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const supabase = createAdminClient();
 
-    // Get all active funded accounts
+    // funded_accounts does not exist — use challenge_accounts with status=passed as proxy
     const { data: accounts } = await supabase
-      .from('funded_accounts')
-      .select('id, balance')
-      .eq('status', 'active');
+      .from('challenge_accounts')
+      .select('id, current_balance')
+      .eq('status', 'passed');
 
-    // Get accounts with open risk alerts
+    // risk_alerts not in schema cache → use risk_events (trading_account_id, acknowledged)
     const { data: alerts } = await supabase
-      .from('risk_alerts')
-      .select('account_id')
-      .eq('status', 'open');
+      .from('risk_events')
+      .select('trading_account_id')
+      .eq('acknowledged', false);
 
-    const atRiskAccountIds = new Set((alerts ?? []).map((a) => a.account_id));
+    const atRiskAccountIds = new Set((alerts ?? []).map((a: any) => a.trading_account_id).filter(Boolean));
     const allAccounts = accounts ?? [];
 
-    const deployed = allAccounts.reduce((sum, a) => sum + (a.balance ?? 0), 0);
+    const deployed = allAccounts.reduce((sum, a) => sum + (a.current_balance ?? 0), 0);
     const atRisk = allAccounts
       .filter((a) => atRiskAccountIds.has(a.id))
-      .reduce((sum, a) => sum + (a.balance ?? 0), 0);
+      .reduce((sum, a) => sum + (a.current_balance ?? 0), 0);
     const ratio = deployed > 0 ? (atRisk / deployed) * 100 : 0;
 
     return NextResponse.json({

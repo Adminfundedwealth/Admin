@@ -32,11 +32,12 @@ export async function GET() {
     const alerts: Alert[] = [];
     const now = Date.now();
 
-    // 1. Critical risk alerts
+    // 1. Critical risk events — LIVE TABLE: risk_events (risk_alerts not in schema cache)
+    // risk_events cols: id, trading_account_id, challenge_id, event_type, severity, acknowledged, created_at
     const { data: riskAlerts, count: riskCount } = await supabase
-      .from('risk_alerts')
-      .select('id, severity, alert_type, created_at', { count: 'exact' })
-      .eq('status', 'open')
+      .from('risk_events')
+      .select('id, severity, event_type, created_at', { count: 'exact' })
+      .eq('acknowledged', false)
       .eq('severity', 'critical')
       .limit(5);
 
@@ -116,9 +117,9 @@ export async function GET() {
       });
     }
 
-    // 5. Large pending payouts (>₹100k)
+    // 5. Large pending payouts — LIVE TABLE: payout_reviews
     const { data: largePayouts, count: largePayoutCount } = await supabase
-      .from('payout_requests')
+      .from('payout_reviews')
       .select('id, calculated_payout, created_at', { count: 'exact' })
       .in('status', ['request_received', 'under_review'])
       .gt('calculated_payout', 100000)
