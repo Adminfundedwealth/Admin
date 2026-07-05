@@ -25,18 +25,12 @@ interface TerminalEvent {
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify webhook secret
+    // Verify webhook secret — always return 401 for bad/missing auth (fail closed)
     const authHeader = request.headers.get('authorization');
     const expectedSecret = process.env.TERMINAL_WEBHOOK_SECRET;
 
-    if (!expectedSecret) {
-      return NextResponse.json(
-        { error: 'Webhook not configured' },
-        { status: 503 }
-      );
-    }
-
-    if (!authHeader || authHeader !== `Bearer ${expectedSecret}`) {
+    // If secret is unconfigured or mismatched, reject with 401 (don't leak config state)
+    if (!expectedSecret || !authHeader || authHeader !== `Bearer ${expectedSecret}`) {
       return NextResponse.json(
         { error: 'Invalid webhook authentication' },
         { status: 401 }

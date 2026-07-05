@@ -51,36 +51,37 @@ export async function GET(request: NextRequest) {
       }));
     }
 
-    // Search challenge accounts
+    // Search challenge accounts — LIVE cols: id, type, plan, trader_id, status (no account_number/challenge_type)
     const { data: challenges } = await supabase
       .from('challenge_accounts')
-      .select('id, account_number, challenge_type, status, user_id')
-      .or(`account_number.ilike.%${query}%,challenge_type.ilike.%${query}%`)
+      .select('id, type, plan, status, trader_id')
+      .or(`type.ilike.%${query}%,plan.ilike.%${query}%`)
       .limit(5);
 
     if (challenges && challenges.length > 0) {
       results['Challenges'] = challenges.map((c) => ({
         id: c.id,
         type: 'Challenges',
-        title: c.account_number,
-        subtitle: `${c.challenge_type} • ${c.status}`,
+        title: c.id.slice(0, 8).toUpperCase(),
+        subtitle: `${c.plan || c.type} • ${c.status}`,
         href: `/challenges/${c.id}`,
       }));
     }
 
-    // Search funded accounts
+    // Search funded accounts — funded_accounts not in schema cache
+    // Use trading_accounts instead: id, account_code, broker_provider, status
     const { data: funded } = await supabase
-      .from('funded_accounts')
-      .select('id, account_number, status, account_size')
-      .ilike('account_number', `%${query}%`)
+      .from('trading_accounts')
+      .select('id, account_code, broker_provider, status')
+      .ilike('account_code', `%${query}%`)
       .limit(5);
 
     if (funded && funded.length > 0) {
       results['Funded Accounts'] = funded.map((f) => ({
         id: f.id,
         type: 'Funded Accounts',
-        title: f.account_number,
-        subtitle: `$${f.account_size} • ${f.status}`,
+        title: f.account_code || f.id.slice(0, 8).toUpperCase(),
+        subtitle: `${f.broker_provider || 'MT'} • ${f.status}`,
         href: `/funded/${f.id}`,
       }));
     }

@@ -42,10 +42,12 @@ export async function GET(request: NextRequest) {
       .order('updated_at', { ascending: false })
       .limit(20);
 
-    // Fetch recent risk alerts
+    // Fetch recent risk events — LIVE TABLE: risk_events (risk_alerts not in schema cache)
+    // risk_events cols: id, trading_account_id, challenge_id, event_type, severity, rule_type,
+    //                   threshold_value, actual_value, metadata, acknowledged, created_at
     const { data: riskEvents } = await supabase
-      .from('risk_alerts')
-      .select('id, account_id, account_type, alert_type, severity, status, created_at')
+      .from('risk_events')
+      .select('id, trading_account_id, challenge_id, event_type, severity, acknowledged, created_at')
       .gte('created_at', since)
       .order('created_at', { ascending: false })
       .limit(20);
@@ -96,12 +98,12 @@ export async function GET(request: NextRequest) {
     for (const r of riskEvents || []) {
       timeline.push({
         id: `risk-${r.id}`,
-        type: `risk.${r.alert_type}`,
+        type: `risk.${r.event_type}`,
         category: 'risk',
-        status: r.status,
+        status: r.acknowledged ? 'acknowledged' : 'open',
         severity: r.severity,
-        description: `${r.alert_type} alert (${r.severity}) on ${r.account_type} ${r.account_id?.slice(0, 8)?.toUpperCase()}`,
-        entityId: r.id,
+        description: `${r.event_type} (${r.severity}) on trading account ${r.trading_account_id?.slice(0, 8)?.toUpperCase() ?? 'unknown'}`,
+        entityId: r.trading_account_id || r.id,
         linkTo: '/risk',
         timestamp: r.created_at,
       });

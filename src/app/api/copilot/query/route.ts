@@ -143,11 +143,11 @@ function handleNavigation(query: string): CopilotQueryResponse {
 
 async function handleReport(supabase: any, query: string): Promise<CopilotQueryResponse> {
   try {
-    // Fetch key metrics for report
+    // Fetch key metrics for report — LIVE TABLE CORRECTIONS
     const [payouts, kyc, risk, users] = await Promise.all([
-      supabase.from('payout_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+      supabase.from('payout_reviews').select('*', { count: 'exact', head: true }).in('status', ['request_received', 'under_review']),
       supabase.from('kyc_submissions').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
-      supabase.from('risk_alerts').select('*', { count: 'exact', head: true }).eq('status', 'open'),
+      supabase.from('risk_events').select('*', { count: 'exact', head: true }).eq('acknowledged', false),
       supabase.from('users').select('*', { count: 'exact', head: true }).gte('created_at', new Date(Date.now() - 86400000).toISOString()),
     ]);
 
@@ -180,12 +180,12 @@ async function handleReport(supabase: any, query: string): Promise<CopilotQueryR
 }
 
 async function handleDataQuery(supabase: any, query: string): Promise<CopilotQueryResponse> {
-  // --- Pending payouts ---
+  // --- Pending payouts --- LIVE TABLE: payout_reviews
   if (query.includes('pending payout') || query.includes('payout queue') || query.includes('how many') && query.includes('payout')) {
     const { count, data } = await supabase
-      .from('payout_requests')
+      .from('payout_reviews')
       .select('id, calculated_payout, created_at', { count: 'exact' })
-      .eq('status', 'pending')
+      .in('status', ['request_received', 'under_review'])
       .order('created_at', { ascending: true })
       .limit(5);
 
@@ -222,26 +222,26 @@ async function handleDataQuery(supabase: any, query: string): Promise<CopilotQue
     };
   }
 
-  // --- Risk alerts / high-risk accounts ---
+  // --- Risk events / high-risk accounts --- LIVE TABLE: risk_events
   if (query.includes('risk') || query.includes('breach') || query.includes('high-risk')) {
     const { count, data } = await supabase
-      .from('risk_alerts')
-      .select('id, severity, account_id, type, created_at', { count: 'exact' })
-      .eq('status', 'open')
+      .from('risk_events')
+      .select('id, severity, event_type, trading_account_id, created_at', { count: 'exact' })
+      .eq('acknowledged', false)
       .order('severity', { ascending: false })
       .limit(5);
 
     return {
       type: 'data',
-      content: `There are ${count ?? 0} active risk alerts.`,
+      content: `There are ${count ?? 0} active risk events.`,
       structuredData: {
         type: 'metric',
-        data: { label: 'Active Risk Alerts', value: count ?? 0 },
+        data: { label: 'Active Risk Events', value: count ?? 0 },
       },
       entityRefs: (data ?? []).map((a: any) => ({
         id: a.id,
-        type: 'risk_alert',
-        label: `${a.type} — ${a.severity}`,
+        type: 'risk_event',
+        label: `${a.event_type} — ${a.severity}`,
         href: `/risk`,
       })),
     };
@@ -290,12 +290,12 @@ async function handleDataQuery(supabase: any, query: string): Promise<CopilotQue
     };
   }
 
-  // --- Funded accounts ---
+  // --- Funded accounts --- LIVE TABLE: challenge_accounts status=passed
   if (query.includes('funded') || query.includes('funded trader') || query.includes('funded account')) {
     const { count } = await supabase
-      .from('funded_accounts')
+      .from('challenge_accounts')
       .select('*', { count: 'exact', head: true })
-      .eq('status', 'active');
+      .eq('status', 'passed');
 
     return {
       type: 'data',
@@ -307,12 +307,12 @@ async function handleDataQuery(supabase: any, query: string): Promise<CopilotQue
     };
   }
 
-  // --- Payout liability ---
+  // --- Payout liability --- LIVE TABLE: payout_reviews
   if (query.includes('liability') || query.includes('total pending amount')) {
     const { data } = await supabase
-      .from('payout_requests')
+      .from('payout_reviews')
       .select('calculated_payout')
-      .eq('status', 'pending');
+      .in('status', ['request_received', 'under_review']);
 
     const total = (data ?? []).reduce((sum: number, p: any) => sum + (p.calculated_payout ?? 0), 0);
 

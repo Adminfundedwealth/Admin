@@ -13,15 +13,18 @@ export async function GET() {
     const supabase = createAdminClient();
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Counts
+    // Counts — LIVE TABLE CORRECTIONS:
+    // - funded_accounts not in schema cache → use challenge_accounts status=passed
+    // - payout_requests not in schema cache → use payout_reviews
+    // - risk_alerts not in schema cache → use risk_events
     const [activeUsers, activeChallenges, activeFunded, pendingPayouts, pendingKYC, openTickets, riskAlerts, activeStaff] = await Promise.all([
       supabase.from('users').select('id', { count: 'exact', head: true }).gt('last_activity_at', thirtyDaysAgo).eq('account_status', 'active'),
       supabase.from('challenge_accounts').select('id', { count: 'exact', head: true }).eq('status', 'active'),
-      supabase.from('funded_accounts').select('id', { count: 'exact', head: true }).eq('status', 'active'),
-      supabase.from('payout_requests').select('id, calculated_payout', { count: 'exact' }).in('status', ['request_received', 'under_review']),
+      supabase.from('challenge_accounts').select('id', { count: 'exact', head: true }).eq('status', 'passed'),
+      supabase.from('payout_reviews').select('id, calculated_payout', { count: 'exact' }).in('status', ['request_received', 'under_review']),
       supabase.from('kyc_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('support_tickets').select('id', { count: 'exact', head: true }).in('status', ['open', 'in_progress']),
-      supabase.from('risk_alerts').select('id', { count: 'exact', head: true }).eq('status', 'open'),
+      supabase.from('risk_events').select('id', { count: 'exact', head: true }).eq('acknowledged', false),
       supabase.from('staff_sessions').select('id', { count: 'exact', head: true }).is('invalidated_at', null).gt('last_activity', new Date(Date.now() - 30 * 60 * 1000).toISOString()),
     ]);
 
@@ -36,12 +39,12 @@ export async function GET() {
     const passRate = (totalCompleted || 0) > 0 ? Math.round(((totalPassed || 0) / (totalCompleted || 1)) * 100) : 0;
     const failRate = (totalCompleted || 0) > 0 ? Math.round(((totalFailed || 0) / (totalCompleted || 1)) * 100) : 0;
 
-    // Revenue: today vs yesterday (from completed payouts as proxy until purchases table exists)
+    // Revenue: today vs yesterday — from payout_reviews (live table)
     const startOfToday = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
     const startOfYesterday = new Date(new Date().setHours(0, 0, 0, 0) - 86400000).toISOString();
 
-    const { data: todayPayouts } = await supabase.from('payout_requests').select('calculated_payout').eq('status', 'payment_completed').gte('completed_at', startOfToday);
-    const { data: yesterdayPayouts } = await supabase.from('payout_requests').select('calculated_payout').eq('status', 'payment_completed').gte('completed_at', startOfYesterday).lt('completed_at', startOfToday);
+    const { data: todayPayouts } = await supabase.from('payout_reviews').select('calculated_payout').eq('status', 'payment_completed').gte('completed_at', startOfToday);
+    const { data: yesterdayPayouts } = await supabase.from('payout_reviews').select('calculated_payout').eq('status', 'payment_completed').gte('completed_at', startOfYesterday).lt('completed_at', startOfToday);
 
     const revenueToday = (todayPayouts || []).reduce((s: number, p: any) => s + (p.calculated_payout || 0), 0);
     const revenueYesterday = (yesterdayPayouts || []).reduce((s: number, p: any) => s + (p.calculated_payout || 0), 0);

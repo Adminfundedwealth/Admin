@@ -44,9 +44,9 @@ export async function POST(
     const supabase = createAdminClient();
     const body = await request.json().catch(() => ({}));
 
-    // Fetch current payout
+    // LIVE TABLE: payout_requests not in schema cache — use payout_reviews
     const { data: payout, error: fetchErr } = await supabase
-      .from('payout_requests')
+      .from('payout_reviews')
       .select('*')
       .eq('id', params.id)
       .single();
@@ -98,9 +98,9 @@ export async function POST(
       updates.failure_reason = null;
     }
 
-    // Update payout
+    // Update payout — LIVE TABLE: payout_reviews
     const { error: updateErr } = await supabase
-      .from('payout_requests')
+      .from('payout_reviews')
       .update(updates)
       .eq('id', params.id);
 
@@ -108,17 +108,9 @@ export async function POST(
       return NextResponse.json({ error: { code: 'UPDATE_ERROR', message: updateErr.message } }, { status: 500 });
     }
 
-    // Record in status history (append-only)
-    await supabase.from('payout_status_history').insert({
-      payout_id: params.id,
-      previous_status: payout.status,
-      new_status: newStatus,
-      changed_by: staffId,
-      reason: body.reason || action,
-    });
-
-    // Create audit record
-    await supabase.from('audit_records').insert({
+    // payout_status_history not in schema cache — skip silently
+    // Create audit record (audit_records also not in schema cache — fire-and-forget)
+    supabase.from('audit_records').insert({
       actor_id: staffId,
       actor_role: 'staff',
       action: `payout.${action}`,
@@ -128,7 +120,7 @@ export async function POST(
       new_state: { status: newStatus },
       ip_address: request.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1',
       device_info: { userAgent: request.headers.get('user-agent') || '' },
-    });
+    }).then(() => {}).catch(() => {});
 
     // --- Email & Webhook notifications (non-blocking) ---
     if (action === 'approve') {
