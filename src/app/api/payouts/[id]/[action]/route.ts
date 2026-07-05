@@ -110,7 +110,7 @@ export async function POST(
 
     // payout_status_history not in schema cache — skip silently
     // Create audit record (audit_records also not in schema cache — fire-and-forget)
-    supabase.from('audit_records').insert({
+    void supabase.from('audit_records').insert({
       actor_id: staffId,
       actor_role: 'staff',
       action: `payout.${action}`,
@@ -120,7 +120,7 @@ export async function POST(
       new_state: { status: newStatus },
       ip_address: request.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1',
       device_info: { userAgent: request.headers.get('user-agent') || '' },
-    }).then(() => {}).catch(() => {});
+    });
 
     // --- Email & Webhook notifications (non-blocking) ---
     if (action === 'approve') {
