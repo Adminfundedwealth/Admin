@@ -3,53 +3,71 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requireFounderInHandler } from '@/lib/security/require-auth';
-import { generateActivationToken } from '@/lib/provisioning/credentials';
 
 /**
  * POST /api/founder/terminal-launch
  *
- * BUG 4 FIX: Launch Terminal with auto-login via SSO token.
+ * Generates a terminal SSO launch URL for a trading account.
  *
  * Flow:
- *   1. Verify founder auth
- *   2. Resolve trading account → get terminal login + email
- *   3. Generate time-limited SSO token (5 min)
- *   4. Return launch_url with token embedded
- *   5. Admin clicks → terminal auto-authenticates, no second login
+ *   1. Founder auth
+ *   2. Resolve trading_account → get accountId, traderId, email, accountCode
+ *   3. Call terminal POST /auth/sso/generate with x-sso-api-key
+ *      Terminal signs a JWT with SSO_SHARED_SECRET, returns { token, launchUrl }
+ *   4. Return launchUrl — clicking it does GET /auth/sso?token=<jwt>
+ *      Terminal verifies JWT, sets fw_session cookie, redirects to /
+ *      Result: user is inside trading terminal, no second login
  *
- * The terminal validates the token by calling back to this admin service
- * at POST /api/founder/terminal-launch/validate (or via shared secret).
+ * Env required:
+ *   TERMINAL_API_URL  — e.g. https://terminal.fundedwealth.com
+ *   SSO_API_KEY       — shared secret for x-sso-api-key header (same value on terminal)
  */
 export async function POST(request: NextRequest) {
   try {
+    // ── 1. Auth ──────────────────────────────────────────────────────────────
     const { error: authError } = await requireFounderInHandler();
     if (authError) return authError;
 
     const body = await request.json();
-    const { trading_account_id, email, terminal_login } = body as {
+    const { trading_account_id, challenge_account_id, email, terminal_login } = body as {
       trading_account_id?: string;
+      challenge_account_id?: string;
       email?: string;
       terminal_login?: string;
     };
 
-    if (!email && !trading_account_id && !terminal_login) {
+    if (!trading_account_id && !challenge_account_id && !terminal_login) {
       return NextResponse.json(
-        { error: { code: 'VALIDATION_ERROR', message: 'Provide trading_account_id, email, or terminal_login' } },
+        { error: { code: 'VALIDATION_ERROR', message: 'Provide trading_account_id, challenge_account_id, or terminal_login' } },
         { status: 400 },
+      );
+    }
+
+    const TERMINAL_API_URL = (process.env.TERMINAL_API_URL || 'https://terminal.fundedwealth.com').replace(/\/$/, '');
+    const SSO_API_KEY = process.env.SSO_API_KEY || '';
+
+    if (!SSO_API_KEY) {
+      return NextResponse.json(
+        { error: { code: 'CONFIGURATION_ERROR', message: 'SSO_API_KEY not configured. Add it to environment variables.' } },
+        { status: 500 },
       );
     }
 
     const supabase = createAdminClient();
 
-    // Resolve account details
-    let resolvedLogin: string | null = terminal_login ?? null;
+    // ── 2. Resolve account details ────────────────────────────────────────────
+    let resolvedTradingAccountId: string | null = trading_account_id ?? null;
+    let resolvedChallengeAccountId: string | null = challenge_account_id ?? null;
     let resolvedEmail: string | null = email ?? null;
+    let resolvedAccountCode: string | null = terminal_login ?? null;
+    let resolvedTraderId: string | null = null;
 
-    if (trading_account_id && !resolvedLogin) {
+    // Look up from trading_accounts if id supplied
+    if (resolvedTradingAccountId) {
       const { data: ta } = await supabase
         .from('trading_accounts')
-        .select('id, account_code, broker_credentials_encrypted')
-        .eq('id', trading_account_id)
+        .select('id, trader_id, challenge_id, account_code, broker_credentials_encrypted')
+        .eq('id', resolvedTradingAccountId)
         .single();
 
       if (!ta) {
@@ -59,148 +77,129 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      resolvedLogin = ta.account_code;
+      resolvedAccountCode = resolvedAccountCode ?? ta.account_code;
+      resolvedTraderId = ta.trader_id;
+      resolvedChallengeAccountId = resolvedChallengeAccountId ?? ta.challenge_id;
 
-      // Try to get email from broker_credentials_encrypted if not supplied
+      // Try to recover email from broker_credentials_encrypted
       if (!resolvedEmail && ta.broker_credentials_encrypted) {
         try {
           const stored = JSON.parse(ta.broker_credentials_encrypted as string);
-          if (stored?.user_email) resolvedEmail = stored.user_email;
-        } catch { /* ignore parse errors */ }
+          resolvedEmail = stored?.user_email ?? null;
+        } catch { /* ignore */ }
       }
     }
 
-    if (!resolvedLogin) {
+    // Look up trader email from terminal_traders if not resolved yet
+    if (!resolvedEmail && resolvedTraderId) {
+      const { data: trader } = await supabase
+        .from('terminal_traders')
+        .select('email')
+        .eq('id', resolvedTraderId)
+        .single();
+      resolvedEmail = trader?.email ?? null;
+    }
+
+    if (!resolvedTradingAccountId) {
       return NextResponse.json(
-        { error: { code: 'VALIDATION_ERROR', message: 'Could not resolve terminal login ID' } },
+        { error: { code: 'VALIDATION_ERROR', message: 'Could not resolve trading account ID' } },
         { status: 400 },
       );
     }
 
-    // Generate SSO token — 5 minute expiry
-    const ssoToken = generateActivationToken();
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    // ── 3. Call terminal /auth/sso/generate ───────────────────────────────────
+    // Terminal signs a JWT with SSO_SHARED_SECRET, returns { token, launchUrl }
+    const terminalPayload = {
+      fwUserId: resolvedTraderId ?? resolvedTradingAccountId,
+      accountId: resolvedTradingAccountId,
+      challengeId: resolvedChallengeAccountId ?? null,
+      email: resolvedEmail ?? null,
+      name: null,
+      accountCode: resolvedAccountCode ?? null,
+    };
 
-    // Store token in DB so terminal can validate it on callback
-    // Gracefully handle if sso_tokens table doesn't exist yet
+    let launchUrl: string;
+    let ssoToken: string;
+
     try {
-      const { error: insertErr } = await supabase.from('sso_tokens').insert({
-        token: ssoToken,
-        terminal_login: resolvedLogin,
-        email: resolvedEmail,
-        expires_at: expiresAt,
-        created_at: new Date().toISOString(),
-        used: false,
+      const terminalRes = await fetch(`${TERMINAL_API_URL}/auth/sso/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sso-api-key': SSO_API_KEY,
+        },
+        body: JSON.stringify(terminalPayload),
+        signal: AbortSignal.timeout(10000),
       });
-      if (insertErr) {
-        // Table may not exist — log but don't fail the launch URL generation
-        console.warn('[terminal-launch] sso_tokens insert failed (table may not exist):', insertErr.message);
+
+      if (!terminalRes.ok) {
+        const errBody = await terminalRes.text().catch(() => '');
+        console.error(`[terminal-launch] Terminal SSO generate failed ${terminalRes.status}: ${errBody}`);
+        return NextResponse.json(
+          {
+            error: {
+              code: 'SSO_GENERATE_FAILED',
+              message: `Terminal rejected SSO token generation (${terminalRes.status}): ${errBody.slice(0, 200)}`,
+            },
+          },
+          { status: 502 },
+        );
       }
-    } catch (ssoErr) {
-      console.warn('[terminal-launch] sso_tokens insert error:', ssoErr);
+
+      const terminalData = await terminalRes.json() as {
+        success?: boolean;
+        token?: string;
+        launchUrl?: string;
+        url?: string;
+        expiresIn?: number;
+      };
+
+      if (!terminalData.success || (!terminalData.token && !terminalData.launchUrl)) {
+        return NextResponse.json(
+          {
+            error: {
+              code: 'SSO_GENERATE_FAILED',
+              message: `Terminal SSO generate returned unexpected response: ${JSON.stringify(terminalData).slice(0, 200)}`,
+            },
+          },
+          { status: 502 },
+        );
+      }
+
+      // Terminal may return launchUrl directly, or just a token we must embed
+      launchUrl = terminalData.launchUrl ||
+        terminalData.url ||
+        `${TERMINAL_API_URL}/auth/sso?token=${encodeURIComponent(terminalData.token!)}`;
+      ssoToken = terminalData.token ?? '';
+
+    } catch (fetchErr: unknown) {
+      const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      console.error('[terminal-launch] fetch to terminal failed:', msg);
+      return NextResponse.json(
+        {
+          error: {
+            code: 'TERMINAL_UNREACHABLE',
+            message: `Could not reach terminal at ${TERMINAL_API_URL}: ${msg}`,
+          },
+        },
+        { status: 502 },
+      );
     }
 
-    const terminalBaseUrl =
-      process.env.TERMINAL_BASE_URL || 'https://terminal.fundedwealth.com';
-
-    // Build SSO URL — terminal reads these params to auto-authenticate
-    const params = new URLSearchParams({
-      sso: ssoToken,
-      login: resolvedLogin,
-      ...(resolvedEmail ? { email: resolvedEmail } : {}),
-      expires: expiresAt,
-      source: 'admin_emergency_provision',
-    });
-
-    const launchUrl = `${terminalBaseUrl}/auth/sso?${params.toString()}`;
-
+    // ── 4. Return launch URL ──────────────────────────────────────────────────
     return NextResponse.json({
       success: true,
       launch_url: launchUrl,
       sso_token: ssoToken,
-      terminal_login: resolvedLogin,
-      expires_at: expiresAt,
-      terminal_base_url: terminalBaseUrl,
+      terminal_login: resolvedAccountCode,
+      terminal_url: TERMINAL_API_URL,
+      expires_in: 60,
     });
+
   } catch (err) {
-    console.error('Terminal launch error:', err);
+    console.error('[terminal-launch] Unhandled error:', err);
     return NextResponse.json(
       { error: { code: 'INTERNAL_ERROR', message: 'Failed to generate terminal launch URL' } },
-      { status: 500 },
-    );
-  }
-}
-
-/**
- * GET /api/founder/terminal-launch/validate?token=<sso_token>
- * Called by Terminal to validate an SSO token on the callback leg.
- * Returns the terminal_login + email if token is valid and unused.
- */
-export async function GET(request: NextRequest) {
-  try {
-    const token = request.nextUrl.searchParams.get('token');
-    if (!token) {
-      return NextResponse.json(
-        { error: { code: 'VALIDATION_ERROR', message: 'token is required' } },
-        { status: 400 },
-      );
-    }
-
-    // Verify shared secret from terminal (same TERMINAL_WEBHOOK_SECRET)
-    const authHeader = request.headers.get('authorization');
-    const expectedSecret = process.env.TERMINAL_WEBHOOK_SECRET;
-    if (!expectedSecret || !authHeader || authHeader !== `Bearer ${expectedSecret}`) {
-      return NextResponse.json(
-        { error: { code: 'UNAUTHORIZED', message: 'Invalid auth' } },
-        { status: 401 },
-      );
-    }
-
-    const supabase = createAdminClient();
-
-    const { data: ssoRow } = await supabase
-      .from('sso_tokens')
-      .select('*')
-      .eq('token', token)
-      .single();
-
-    if (!ssoRow) {
-      return NextResponse.json(
-        { error: { code: 'INVALID_TOKEN', message: 'Token not found' } },
-        { status: 404 },
-      );
-    }
-
-    if (ssoRow.used) {
-      return NextResponse.json(
-        { error: { code: 'TOKEN_USED', message: 'Token already consumed' } },
-        { status: 410 },
-      );
-    }
-
-    if (new Date(ssoRow.expires_at).getTime() < Date.now()) {
-      return NextResponse.json(
-        { error: { code: 'TOKEN_EXPIRED', message: 'Token has expired' } },
-        { status: 410 },
-      );
-    }
-
-    // Mark token as used (one-time use)
-    await supabase
-      .from('sso_tokens')
-      .update({ used: true })
-      .eq('token', token);
-
-    return NextResponse.json({
-      valid: true,
-      terminal_login: ssoRow.terminal_login,
-      email: ssoRow.email,
-      expires_at: ssoRow.expires_at,
-    });
-  } catch (err) {
-    console.error('SSO token validate error:', err);
-    return NextResponse.json(
-      { error: { code: 'INTERNAL_ERROR', message: 'Validation failed' } },
       { status: 500 },
     );
   }
