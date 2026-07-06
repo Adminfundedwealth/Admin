@@ -1,26 +1,23 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { apiFetch } from '@/lib/api/fetch';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/shared/loading-state';
-import { Shield, UserPlus, Copy, CheckCircle, AlertTriangle, ExternalLink, RefreshCw } from 'lucide-react';
-import { apiFetch } from '@/lib/api/fetch';
+import {
+  Shield, UserPlus, Copy, CheckCircle, AlertTriangle,
+  ExternalLink, RefreshCw, Terminal, Eye, EyeOff,
+} from 'lucide-react';
 
-/**
- * Emergency Manual Provision — Founder-only.
- * Displays terminal login credentials after provisioning.
- * Handles existing accounts with management actions.
- */
-
-interface ChallengeProductSize {
+interface CatalogSize {
   accountSize: number;
   sizeLabel: string;
   fee: number;
   popular: boolean;
 }
 
-interface ChallengeProduct {
+interface CatalogProduct {
   slug: string;
   displayName: string;
   profitTarget: string;
@@ -31,8 +28,48 @@ interface ChallengeProduct {
   profitSplit: string;
   duration: string;
   phases: number;
-  sizes: ChallengeProductSize[];
+  rules: {
+    profitTargetPct: number;
+    dailyLossLimitPct: number;
+    maxDrawdownPct: number;
+    minTradingDays: number;
+    maxDaysAllowed: number;
+    type: string;
+  };
+  sizes: CatalogSize[];
   accountSizes: number[];
+}
+
+interface StoredRules {
+  type: string;
+  plan: string;
+  initial_balance: number;
+  profit_target_pct: number;
+  daily_loss_limit_pct: number;
+  max_drawdown_pct: number;
+  min_trading_days: number;
+  max_calendar_days: number;
+  status: string;
+}
+
+interface VerificationChecks {
+  product_preserved: boolean;
+  balance_correct: boolean;
+  credentials_ready: boolean;
+  launch_url_built: boolean;
+}
+
+interface Verification {
+  provisioned_slug: string;
+  stored_type: string | null;
+  stored_plan: string | null;
+  stored_initial_balance: number | null;
+  catalog_profit_target_pct: number;
+  catalog_daily_loss_pct: number;
+  catalog_max_drawdown_pct: number;
+  credentials_generated: boolean;
+  terminal_login_set: boolean;
+  checks: VerificationChecks;
 }
 
 interface ProvisionResult {
@@ -41,13 +78,19 @@ interface ProvisionResult {
   user_name: string;
   challenge_account_id: string;
   trading_account_id: string | null;
-  terminal_login_id: string;
+  // BUG 2: Full credentials
+  terminal_login: string;
   terminal_email: string;
+  temporary_password: string;
+  activation_token: string;
+  credential_expiry: string;
+  // BUG 4: Launch URL
   terminal_url: string;
+  launch_url: string;
+  // BUG 1: Exact product values
   account_size: number;
   challenge_type: string;
   challenge_display_name: string;
-  phases: number;
   profit_target: string;
   daily_loss: string;
   max_loss: string;
@@ -55,6 +98,10 @@ interface ProvisionResult {
   leverage: string;
   profit_split: string;
   duration: string;
+  // BUG 3: Stored rules from DB
+  stored_rules: StoredRules | null;
+  // BUG 5: Verification
+  verification: Verification;
   user_created: boolean;
   provisioned_at: string;
 }
@@ -64,7 +111,7 @@ interface ExistingAccountData {
   user_email: string;
   user_name: string;
   trading_account_id: string;
-  terminal_login_id: string;
+  terminal_login: string;
   terminal_email: string;
   terminal_url: string;
   account_size: number;
@@ -73,7 +120,7 @@ interface ExistingAccountData {
 }
 
 export default function EmergencyManualProvisionPage() {
-  const [products, setProducts] = useState<ChallengeProduct[]>([]);
+  const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [productsError, setProductsError] = useState('');
 
@@ -88,10 +135,11 @@ export default function EmergencyManualProvisionPage() {
   const [result, setResult] = useState<ProvisionResult | null>(null);
   const [existingAccount, setExistingAccount] = useState<ExistingAccountData | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState('');
 
-  useEffect(() => { loadProducts(); }, []);
-
-  async function loadProducts() {
+  const loadProducts = useCallback(async () => {
     setProductsLoading(true);
     setProductsError('');
     try {
@@ -111,7 +159,9 @@ export default function EmergencyManualProvisionPage() {
     } finally {
       setProductsLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => { loadProducts(); }, [loadProducts]);
 
   const currentProduct = products.find((p) => p.slug === selectedProduct);
 
@@ -163,54 +213,72 @@ export default function EmergencyManualProvisionPage() {
     }
   }
 
-  function copyCredentials() {
-    if (!result) return;
-    const text = [
-      'FundedWealth — Terminal Credentials',
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-      `Name:              ${result.user_name}`,
-      `Email:             ${result.user_email}`,
-      `Terminal Login ID: ${result.terminal_login_id}`,
-      `Terminal Email:    ${result.terminal_email}`,
-      `Terminal URL:      ${result.terminal_url}`,
-      `Account Size:      ₹${result.account_size.toLocaleString()}`,
-      `Challenge:         ${result.challenge_display_name}`,
-      `Leverage:          ${result.leverage}`,
-      `Profit Target:     ${result.profit_target}`,
-      `Daily Loss Limit:  ${result.daily_loss}`,
-      `Max Loss Limit:    ${result.max_loss}`,
-      `Profit Split:      ${result.profit_split}`,
-      `Duration:          ${result.duration}`,
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-      'Password: Sent by platform to trader email on first login.',
-    ].join('\n');
+  // BUG 4: Launch terminal with SSO auto-login
+  async function handleLaunchTerminal(
+    tradingAccountId: string | null,
+    loginEmail: string,
+    terminalLogin: string,
+  ) {
+    setLaunching(true);
+    setLaunchError('');
+    try {
+      const res = await apiFetch('/api/founder/terminal-launch', {
+        method: 'POST',
+        body: JSON.stringify({
+          trading_account_id: tradingAccountId,
+          email: loginEmail,
+          terminal_login: terminalLogin,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setLaunchError(json.error?.message || 'Failed to generate launch URL');
+        return;
+      }
+      // Open the SSO URL — terminal auto-authenticates the user
+      window.open(json.launch_url, '_blank', 'noopener,noreferrer');
+    } catch {
+      setLaunchError('Network error. Could not launch terminal.');
+    } finally {
+      setLaunching(false);
+    }
+  }
+
+  function copyText(text: string) {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 3000);
   }
 
-  function copyExistingLogin() {
-    if (!existingAccount) return;
-    const text = [
-      'FundedWealth — Existing Terminal Account',
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-      `Name:              ${existingAccount.user_name}`,
-      `Email:             ${existingAccount.user_email}`,
-      `Terminal Login ID: ${existingAccount.terminal_login_id}`,
-      `Terminal Email:    ${existingAccount.terminal_email}`,
-      `Terminal URL:      ${existingAccount.terminal_url}`,
-      `Challenge:         ${existingAccount.challenge_type}`,
-      `Account Size:      ₹${existingAccount.account_size?.toLocaleString() ?? '—'}`,
-      `Status:            ${existingAccount.status}`,
-    ].join('\n');
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
+  function copyCredentials() {
+    if (!result) return;
+    const lines = [
+      'FundedWealth — Terminal Credentials',
+      '════════════════════════════════════',
+      `Name:               ${result.user_name}`,
+      `Login Email:        ${result.user_email}`,
+      `Terminal Login:     ${result.terminal_login}`,
+      `Temporary Password: ${result.temporary_password}`,
+      `Activation Token:   ${result.activation_token}`,
+      `Credential Expiry:  ${new Date(result.credential_expiry).toLocaleString()}`,
+      `Terminal URL:       ${result.terminal_url}`,
+      `Launch URL:         ${result.launch_url}`,
+      '────────────────────────────────────',
+      `Account Size:       ₹${result.account_size.toLocaleString()}`,
+      `Challenge:          ${result.challenge_display_name}`,
+      `Leverage:           ${result.leverage}`,
+      `Profit Target:      ${result.profit_target}`,
+      `Daily Loss Limit:   ${result.daily_loss}`,
+      `Max Loss Limit:     ${result.max_loss}`,
+      `Profit Split:       ${result.profit_split}`,
+      `Duration:           ${result.duration}`,
+    ];
+    copyText(lines.join('\n'));
   }
 
   function resetForm() {
     setName(''); setEmail(''); setPhone('');
-    setResult(null); setExistingAccount(null); setError('');
+    setResult(null); setExistingAccount(null); setError(''); setLaunchError('');
     if (products.length > 0) {
       setSelectedProduct(products[0].slug);
       setAccountSize(products[0].accountSizes[0]);
@@ -250,18 +318,19 @@ export default function EmergencyManualProvisionPage() {
           <Shield className="h-7 w-7 text-destructive" /> Emergency Manual Provision
         </h1>
         <p className="text-muted-foreground mt-1">
-          Founder-only. Provision a trading account without requiring a historical order.
-          Uses the same pipeline as the production website checkout.
+          Founder-only. Provision accounts using exact product catalog values.
+          Credentials are generated and displayed here — no separate login required.
         </p>
       </div>
 
-      {/* Warning Banner */}
+      {/* Warning */}
       <div className="flex items-start gap-3 p-4 rounded-lg bg-destructive/5 border border-destructive/20">
         <AlertTriangle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
         <div className="text-sm">
-          <p className="font-semibold text-destructive">This action is audited and irreversible.</p>
+          <p className="font-semibold text-destructive">Audited and irreversible.</p>
           <p className="text-muted-foreground">
-            Account parameters (drawdown, profit target, leverage, payout) are identical to a normal purchase.
+            Exact product rules (drawdown, leverage, targets) are applied from the live catalog.
+            No hardcoded defaults.
           </p>
         </div>
       </div>
@@ -275,92 +344,104 @@ export default function EmergencyManualProvisionPage() {
               <h3 className="font-bold text-lg">Account Provisioned Successfully</h3>
             </div>
 
-            {/* Terminal Credentials — prominent section */}
-            <div className="rounded-lg border border-green-400/40 bg-white dark:bg-green-950/30 p-4 space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-green-700 dark:text-green-400">
-                Terminal Access Credentials
+            {/* BUG 2: Full terminal credentials — login email, terminal login, temp password */}
+            <div className="rounded-lg border border-green-400/40 bg-white dark:bg-green-950/30 p-4 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-green-700 dark:text-green-400 mb-3">
+                Terminal Credentials
               </p>
-              <div className="grid grid-cols-1 gap-2 text-sm">
-                <div className="flex justify-between items-center py-1 border-b border-border/40">
-                  <span className="text-muted-foreground">Terminal Login ID</span>
-                  <span className="font-bold font-mono text-base">{result.terminal_login_id}</span>
-                </div>
-                <div className="flex justify-between items-center py-1 border-b border-border/40">
-                  <span className="text-muted-foreground">Terminal Email</span>
-                  <span className="font-medium">{result.terminal_email}</span>
-                </div>
-                <div className="flex justify-between items-center py-1 border-b border-border/40">
-                  <span className="text-muted-foreground">Terminal URL</span>
-                  <a href={result.terminal_url} target="_blank" rel="noreferrer"
-                    className="font-medium text-primary flex items-center gap-1 hover:underline">
-                    {result.terminal_url} <ExternalLink className="h-3 w-3" />
-                  </a>
-                </div>
-                <div className="flex justify-between items-center py-1">
-                  <span className="text-muted-foreground">Password</span>
-                  <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                    Sent by platform to trader email on first login
+              <CredRow label="Login Email" value={result.user_email} onCopy={() => copyText(result.user_email)} />
+              <CredRow label="Terminal Login" value={result.terminal_login} onCopy={() => copyText(result.terminal_login)} mono />
+              <div className="flex justify-between items-center py-1.5 border-b border-border/30">
+                <span className="text-sm text-muted-foreground">Temporary Password</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm font-bold">
+                    {showPassword ? result.temporary_password : '••••••••••'}
                   </span>
+                  <button onClick={() => setShowPassword((v) => !v)} className="text-muted-foreground hover:text-foreground">
+                    {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                  <button onClick={() => copyText(result.temporary_password)} className="text-muted-foreground hover:text-foreground">
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               </div>
+              <CredRow label="Activation Token" value={result.activation_token} onCopy={() => copyText(result.activation_token)} mono small />
+              <CredRow
+                label="Credential Expiry"
+                value={new Date(result.credential_expiry).toLocaleString()}
+              />
             </div>
 
-            {/* Account Details */}
+            {/* BUG 1: Exact product values */}
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <p className="text-muted-foreground">Trader Name</p>
-                <p className="font-medium">{result.user_name}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Trader Email</p>
-                <p className="font-medium">{result.user_email}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Account Size</p>
-                <p className="font-medium">₹{result.account_size.toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Challenge</p>
-                <p className="font-medium">{result.challenge_display_name}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Leverage</p>
-                <p className="font-medium">{result.leverage}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Profit Target</p>
-                <p className="font-medium">{result.profit_target}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Daily Loss</p>
-                <p className="font-medium">{result.daily_loss}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Max Loss</p>
-                <p className="font-medium">{result.max_loss}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Profit Split</p>
-                <p className="font-medium">{result.profit_split}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Duration</p>
-                <p className="font-medium">{result.duration}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">User</p>
-                <p className="font-medium">{result.user_created ? 'New user created' : 'Existing user'}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Provisioned</p>
-                <p className="font-medium text-xs">{new Date(result.provisioned_at).toLocaleString()}</p>
-              </div>
+              <InfoRow label="Account Size" value={`₹${result.account_size.toLocaleString()}`} />
+              <InfoRow label="Challenge" value={result.challenge_display_name} />
+              <InfoRow label="Leverage" value={result.leverage} />
+              <InfoRow label="Profit Target" value={result.profit_target} />
+              <InfoRow label="Daily Loss" value={result.daily_loss} />
+              <InfoRow label="Max Loss" value={result.max_loss} />
+              <InfoRow label="Profit Split" value={result.profit_split} />
+              <InfoRow label="Duration" value={result.duration} />
+              <InfoRow label="Min Days" value={result.min_days} />
+              <InfoRow label="User" value={result.user_created ? 'New user created' : 'Existing user'} />
             </div>
 
-            <div className="flex gap-2 pt-1">
+            {/* BUG 3: DB verification — stored rules match catalog */}
+            {result.stored_rules && (
+              <div className="rounded-md bg-muted/40 p-3 text-xs space-y-1">
+                <p className="font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  DB Verification — Stored Rules
+                </p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  <span>Type: <strong>{result.stored_rules.type}</strong></span>
+                  <span>Plan: <strong>{result.stored_rules.plan}</strong></span>
+                  <span>Balance: <strong>₹{result.stored_rules.initial_balance?.toLocaleString()}</strong></span>
+                  <span>Status: <strong>{result.stored_rules.status}</strong></span>
+                  <span>Profit Target: <strong>{result.stored_rules.profit_target_pct}%</strong></span>
+                  <span>Daily Loss: <strong>{result.stored_rules.daily_loss_limit_pct}%</strong></span>
+                  <span>Max DD: <strong>{result.stored_rules.max_drawdown_pct}%</strong></span>
+                  <span>Min Days: <strong>{result.stored_rules.min_trading_days}</strong></span>
+                </div>
+              </div>
+            )}
+
+            {/* BUG 5: Verification checks */}
+            {result.verification?.checks && (
+              <div className="rounded-md border border-border/50 p-3 text-xs space-y-1.5">
+                <p className="font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  End-to-End Verification
+                </p>
+                <CheckLine label="Product type preserved" pass={result.verification.checks.product_preserved} />
+                <CheckLine label="Balance correct" pass={result.verification.checks.balance_correct} />
+                <CheckLine label="Credentials generated" pass={result.verification.checks.credentials_ready} />
+                <CheckLine label="Launch URL built" pass={result.verification.checks.launch_url_built} />
+              </div>
+            )}
+
+            {/* BUG 4: Launch Terminal button */}
+            {launchError && (
+              <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/30 text-sm text-destructive">
+                <AlertTriangle className="h-4 w-4 shrink-0" /> {launchError}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2 pt-1">
               <Button onClick={copyCredentials} variant="default" className="gap-2">
                 {copied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copied ? 'Copied!' : 'Copy All Credentials'}
+              </Button>
+              <Button
+                onClick={() => handleLaunchTerminal(
+                  result.trading_account_id,
+                  result.terminal_email,
+                  result.terminal_login,
+                )}
+                disabled={launching}
+                variant="outline"
+                className="gap-2"
+              >
+                <Terminal className="h-4 w-4" />
+                {launching ? 'Launching...' : 'Launch Terminal'}
               </Button>
               <Button onClick={resetForm} variant="outline">Provision Another</Button>
             </div>
@@ -377,52 +458,49 @@ export default function EmergencyManualProvisionPage() {
               <h3 className="font-bold text-lg">Existing Terminal Account Detected</h3>
             </div>
             <p className="text-sm text-muted-foreground">
-              This email already has an active trading account. Use the actions below to manage it.
+              This email already has an active trading account.
             </p>
-
             <div className="rounded-lg border border-amber-400/40 bg-white dark:bg-amber-950/30 p-4 space-y-2 text-sm">
-              <div className="flex justify-between py-1 border-b border-border/40">
-                <span className="text-muted-foreground">Terminal Login ID</span>
-                <span className="font-bold font-mono">{existingAccount.terminal_login_id}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-border/40">
-                <span className="text-muted-foreground">Terminal Email</span>
-                <span className="font-medium">{existingAccount.terminal_email}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-border/40">
-                <span className="text-muted-foreground">Terminal URL</span>
-                <a href={existingAccount.terminal_url} target="_blank" rel="noreferrer"
-                  className="font-medium text-primary flex items-center gap-1 hover:underline">
-                  {existingAccount.terminal_url} <ExternalLink className="h-3 w-3" />
-                </a>
-              </div>
-              <div className="flex justify-between py-1 border-b border-border/40">
+              <CredRow label="Login Email" value={existingAccount.user_email} onCopy={() => copyText(existingAccount.user_email)} />
+              <CredRow label="Terminal Login" value={existingAccount.terminal_login} onCopy={() => copyText(existingAccount.terminal_login)} mono />
+              <div className="flex justify-between py-1.5 border-b border-border/30">
                 <span className="text-muted-foreground">Challenge</span>
                 <span className="font-medium uppercase">{existingAccount.challenge_type}</span>
               </div>
-              <div className="flex justify-between py-1">
+              <div className="flex justify-between py-1.5">
                 <span className="text-muted-foreground">Status</span>
                 <span className="font-medium capitalize">{existingAccount.status}</span>
               </div>
             </div>
-
+            {launchError && (
+              <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/30 text-sm text-destructive">
+                <AlertTriangle className="h-4 w-4 shrink-0" /> {launchError}
+              </div>
+            )}
             <div className="flex flex-wrap gap-2 pt-1">
-              <Button onClick={copyExistingLogin} variant="default" className="gap-2">
+              <Button onClick={() => copyText([
+                `Login Email:    ${existingAccount.user_email}`,
+                `Terminal Login: ${existingAccount.terminal_login}`,
+                `Challenge:      ${existingAccount.challenge_type}`,
+                `Status:         ${existingAccount.status}`,
+              ].join('\n'))} variant="default" className="gap-2">
                 {copied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copied ? 'Copied!' : 'Copy Login Details'}
               </Button>
               <Button
+                onClick={() => handleLaunchTerminal(
+                  existingAccount.trading_account_id,
+                  existingAccount.terminal_email,
+                  existingAccount.terminal_login,
+                )}
+                disabled={launching}
                 variant="outline"
                 className="gap-2"
-                onClick={() => window.open(existingAccount.terminal_url, '_blank')}
               >
-                <ExternalLink className="h-4 w-4" /> Open Terminal
+                <Terminal className="h-4 w-4" />
+                {launching ? 'Launching...' : 'Launch Terminal'}
               </Button>
-              <Button
-                variant="outline"
-                className="gap-2 text-amber-700 border-amber-400 hover:bg-amber-50"
-                onClick={resetForm}
-              >
+              <Button onClick={resetForm} variant="outline" className="gap-2">
                 <RefreshCw className="h-4 w-4" /> Try Different Email
               </Button>
             </div>
@@ -430,11 +508,12 @@ export default function EmergencyManualProvisionPage() {
         </Card>
       )}
 
-      {/* ── FORM ── */}
+      {/* ── PROVISION FORM ── */}
       {!result && !existingAccount && (
         <Card>
           <CardContent className="p-6">
             <form onSubmit={handleSubmit} className="space-y-5">
+
               {/* Name */}
               <div>
                 <label htmlFor="ep-name" className="block text-sm font-medium mb-1.5">
@@ -465,7 +544,7 @@ export default function EmergencyManualProvisionPage() {
                   className="w-full px-3 py-2 border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
 
-              {/* Challenge Type */}
+              {/* Challenge Type — BUG 1: buttons map to catalog slugs exactly */}
               <div>
                 <label className="block text-sm font-medium mb-1.5">
                   Challenge <span className="text-destructive">*</span>
@@ -483,7 +562,7 @@ export default function EmergencyManualProvisionPage() {
                   ))}
                 </div>
 
-                {/* Product detail grid — uses production marketing strings, no hardcoded values */}
+                {/* Product rules preview — from catalog, no hardcoding */}
                 {currentProduct && (
                   <div className="mt-2 p-3 rounded-md bg-muted/50 text-xs">
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1">
@@ -494,12 +573,13 @@ export default function EmergencyManualProvisionPage() {
                       <span>Duration: <strong>{currentProduct.duration}</strong></span>
                       <span>Leverage: <strong>{currentProduct.leverage}</strong></span>
                       <span>Profit Split: <strong>{currentProduct.profitSplit}</strong></span>
+                      <span>Type: <strong>{currentProduct.rules.type}</strong></span>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Account Size — size labels come from production catalog */}
+              {/* Account Size — from catalog sizes */}
               <div>
                 <label className="block text-sm font-medium mb-1.5">
                   Account Size <span className="text-destructive">*</span>
@@ -518,14 +598,12 @@ export default function EmergencyManualProvisionPage() {
                 </div>
               </div>
 
-              {/* Error */}
               {error && (
                 <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/30 text-sm text-destructive">
                   <AlertTriangle className="h-4 w-4 shrink-0" /> {error}
                 </div>
               )}
 
-              {/* Submit */}
               <Button type="submit" disabled={submitting || !selectedProduct || !accountSize}
                 className="w-full gap-2" variant="default">
                 <UserPlus className="h-4 w-4" />
@@ -535,6 +613,60 @@ export default function EmergencyManualProvisionPage() {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+// ── Sub-components ──────────────────────────────────────────────────────────
+
+function CredRow({
+  label,
+  value,
+  onCopy,
+  mono = false,
+  small = false,
+}: {
+  label: string;
+  value: string;
+  onCopy?: () => void;
+  mono?: boolean;
+  small?: boolean;
+}) {
+  return (
+    <div className="flex justify-between items-center py-1.5 border-b border-border/30">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <div className="flex items-center gap-2">
+        <span className={`font-medium ${mono ? 'font-mono' : ''} ${small ? 'text-xs' : 'text-sm'}`}>
+          {value}
+        </span>
+        {onCopy && (
+          <button onClick={onCopy} className="text-muted-foreground hover:text-foreground shrink-0">
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-muted-foreground text-xs">{label}</p>
+      <p className="font-medium text-sm">{value}</p>
+    </div>
+  );
+}
+
+function CheckLine({ label, pass }: { label: string; pass: boolean }) {
+  return (
+    <div className="flex items-center gap-2">
+      {pass
+        ? <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0" />
+        : <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+      <span className={pass ? 'text-green-700 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'}>
+        {label}
+      </span>
     </div>
   );
 }
