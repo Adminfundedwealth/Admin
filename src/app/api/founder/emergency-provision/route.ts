@@ -152,6 +152,10 @@ export async function POST(request: NextRequest) {
     // ── 4. Resolve or create user ────────────────────────────────────────────
     const supabase = createAdminClient();
 
+    // Generate credentials NOW (before user creation) so the password is
+    // available when creating the Supabase Auth account.
+    const credentials: TerminalCredentials = generateTerminalCredentials();
+
     const { data: existingUser } = await supabase
       .from('users')
       .select('id, email, first_name, last_name')
@@ -163,14 +167,48 @@ export async function POST(request: NextRequest) {
 
     if (existingUser) {
       userId = existingUser.id;
+      // Update the Supabase Auth password so the user can log in with the new temp password
+      const { data: authUser } = await supabase.auth.admin.listUsers();
+      const matchingAuthUser = authUser?.users?.find((u) => u.email === email.toLowerCase());
+      if (matchingAuthUser) {
+        await supabase.auth.admin.updateUserById(matchingAuthUser.id, {
+          password: credentials.temporary_password,
+        });
+      }
     } else {
       const nameParts = name.trim().split(/\s+/);
       const firstName = nameParts[0] || name;
       const lastName = nameParts.slice(1).join(' ') || null;
 
+      // Create Supabase Auth user with the temporary password — this is what enables login
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+        email: email.toLowerCase(),
+        password: credentials.temporary_password,
+        email_confirm: true, // skip email verification — founder is provisioning manually
+        user_metadata: {
+          full_name: name.trim(),
+          first_name: firstName,
+          last_name: lastName,
+        },
+      });
+
+      if (authError || !authData?.user) {
+        return NextResponse.json(
+          {
+            error: {
+              code: 'USER_CREATE_FAILED',
+              message: `Failed to create auth user: ${authError?.message}`,
+            },
+          },
+          { status: 500 },
+        );
+      }
+
+      // Insert into public.users table linked to the Supabase Auth user
       const { data: newUser, error: userError } = await supabase
         .from('users')
         .insert({
+          clerk_id: authData.user.id, // Supabase auth user ID maps to clerk_id column
           email: email.toLowerCase(),
           first_name: firstName,
           last_name: lastName,
@@ -181,11 +219,13 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (userError || !newUser) {
+        // Auth user was created — clean up to avoid orphan
+        await supabase.auth.admin.deleteUser(authData.user.id).catch(() => {});
         return NextResponse.json(
           {
             error: {
               code: 'USER_CREATE_FAILED',
-              message: `Failed to create user: ${userError?.message}`,
+              message: `Failed to create user profile: ${userError?.message}`,
             },
           },
           { status: 500 },
@@ -257,12 +297,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── 6. BUG 2: Generate terminal credentials ──────────────────────────────
-    //    terminal_login  = numeric login ID for Match-Trader
-    //    temporary_password = random secure password
-    //    activation_token   = UUID for first-login activation link
-    //    expiry             = 48 hours from now
-    const credentials: TerminalCredentials = generateTerminalCredentials();
+    // ── 6. BUG 2: Terminal credentials already generated above (step 4) ────────
+    //    credentials = { terminal_login, temporary_password, activation_token, expiry }
+    //    temporary_password is now backed by a real Supabase Auth account.
 
     // ── 7. BUG 3: Re-read the ACTUAL stored account from DB ──────────────────
     //    This guarantees dashboard/terminal/admin all show the same data.
@@ -316,13 +353,44 @@ export async function POST(request: NextRequest) {
         .eq('id', result.tradingAccountId);
     }
 
-    // ── 9. BUG 4: Generate SSO token for terminal launch ─────────────────────
-    //    Creates a time-limited (5 min) signed token.
-    //    Terminal reads ?sso=<token>&login=<id> and auto-logs the user in.
-    const ssoToken = credentials.activation_token; // reuse — both are UUIDs
-    const terminalBaseUrl =
-      process.env.TERMINAL_BASE_URL || 'https://terminal.fundedwealth.com';
-    const launchUrl = `${terminalBaseUrl}/auth/sso?token=${ssoToken}&login=${encodeURIComponent(terminalLogin)}&email=${encodeURIComponent(email.toLowerCase())}&expires=${encodeURIComponent(credentials.expiry)}`;
+    // ── 9. BUG 4: Generate real SSO token via terminal /auth/sso/generate ──────
+    //    Call the terminal's API-key-protected endpoint to get a proper signed JWT.
+    //    This is the same endpoint the main site backend uses.
+    const terminalBaseUrl = process.env.TERMINAL_BASE_URL || 'https://terminal.fundedwealth.com';
+    const ssoApiKey = process.env.SSO_API_KEY || process.env.TERMINAL_SSO_API_KEY || '';
+    let launchUrl = `${terminalBaseUrl}/auth/sso?token=${encodeURIComponent(credentials.activation_token)}`;
+
+    if (ssoApiKey && result.tradingAccountId) {
+      try {
+        const ssoRes = await fetch(`${terminalBaseUrl}/auth/sso/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-sso-api-key': ssoApiKey,
+          },
+          body: JSON.stringify({
+            fwUserId: userId,
+            traderId: undefined,
+            accountId: result.tradingAccountId,
+            challengeId: result.challengeAccountId,
+            accountCode: terminalLogin,
+            plan: challenge_type,
+            email: email.toLowerCase(),
+            name: name.trim(),
+          }),
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (ssoRes.ok) {
+          const ssoData = await ssoRes.json() as { launchUrl?: string; url?: string; token?: string };
+          const resolvedUrl = ssoData.launchUrl || ssoData.url ||
+            (ssoData.token ? `${terminalBaseUrl}/auth/sso?token=${encodeURIComponent(ssoData.token)}` : null);
+          if (resolvedUrl) launchUrl = resolvedUrl;
+        }
+      } catch {
+        // Non-fatal — fallback launch URL is still usable after manual SSO
+      }
+    }
 
     // ── 10. BUG 5: Verification — confirm product integrity ──────────────────
     const verification: Record<string, unknown> = {
