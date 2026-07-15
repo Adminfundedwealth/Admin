@@ -37,7 +37,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' blob: data: https:",
               "font-src 'self'",
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://fundedwealth-api-production.up.railway.app",
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.fundedwealth.com",
               "frame-ancestors 'none'",
             ].join('; '),
           },

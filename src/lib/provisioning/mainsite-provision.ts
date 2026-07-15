@@ -75,8 +75,8 @@ export function mainSiteApiBase(): string {
       /* fall through */
     }
   }
-  // Production default: the Railway-deployed Express api-server.
-  return 'https://fundedwealth-api-production.up.railway.app';
+  // Production default: the api-server at the custom domain.
+  return 'https://api.fundedwealth.com';
 }
 
 function internalHeaders(): Record<string, string> {
