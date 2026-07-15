@@ -56,8 +56,92 @@ export interface EmergencyProvisionResult {
 }
 
 /**
+ * Local catalog — mirrors @workspace/products exactly.
+ * Used as primary source so Emergency Provision works even when the
+ * api-server catalog endpoint is unavailable.
+ */
+const LOCAL_CATALOG: CatalogProduct[] = [
+  {
+    slug: 'flash',
+    displayLabel: 'Flash',
+    serverLabel: 'Flash Funding',
+    leverage: '1:100',
+    profitSplit: '80%',
+    duration: '24 Hours',
+    maxLoss: '4%',
+    dailyLoss: '2%',
+    profitTarget: '—',
+    minDays: '—',
+    rules: { profitTargetPct: 0, dailyLossLimitPct: 2, maxDrawdownPct: 4, minTradingDays: 0, maxDaysAllowed: 1, type: 'flash_funding' },
+    sizes: [
+      { index: 0, accountSize: 50000,   sizeLabel: '₹50,000',    fee: 1999,  popular: false },
+      { index: 1, accountSize: 100000,  sizeLabel: '₹1,00,000',  fee: 3499,  popular: false },
+      { index: 2, accountSize: 250000,  sizeLabel: '₹2,50,000',  fee: 7499,  popular: true  },
+      { index: 3, accountSize: 500000,  sizeLabel: '₹5,00,000',  fee: 11499, popular: false },
+      { index: 4, accountSize: 1000000, sizeLabel: '₹10,00,000', fee: 19499, popular: false },
+    ],
+  },
+  {
+    slug: 'instant',
+    displayLabel: 'Instant',
+    serverLabel: 'Instant Funding',
+    leverage: '1:50',
+    profitSplit: '80%',
+    duration: 'Unlimited',
+    maxLoss: '5%',
+    dailyLoss: '3%',
+    profitTarget: 'N/A',
+    minDays: '7',
+    rules: { profitTargetPct: 0, dailyLossLimitPct: 3, maxDrawdownPct: 5, minTradingDays: 7, maxDaysAllowed: 365, type: 'instant_funding' },
+    sizes: [
+      { index: 0, accountSize: 100000,  sizeLabel: '₹1,00,000',  fee: 4999,  popular: false },
+      { index: 1, accountSize: 500000,  sizeLabel: '₹5,00,000',  fee: 10999, popular: true  },
+      { index: 2, accountSize: 1000000, sizeLabel: '₹10,00,000', fee: 17999, popular: false },
+      { index: 3, accountSize: 2000000, sizeLabel: '₹20,00,000', fee: 29999, popular: false },
+    ],
+  },
+  {
+    slug: '1step',
+    displayLabel: '1-Step',
+    serverLabel: '1-Step Evaluation',
+    leverage: '1:30',
+    profitSplit: '80%',
+    duration: 'Unlimited',
+    maxLoss: '6%',
+    dailyLoss: '3%',
+    profitTarget: '10%',
+    minDays: '5',
+    rules: { profitTargetPct: 10, dailyLossLimitPct: 3, maxDrawdownPct: 6, minTradingDays: 5, maxDaysAllowed: 365, type: '1step_evaluation' },
+    sizes: [
+      { index: 0, accountSize: 100000,  sizeLabel: '₹1,00,000',  fee: 2999,  popular: false },
+      { index: 1, accountSize: 500000,  sizeLabel: '₹5,00,000',  fee: 11999, popular: true  },
+      { index: 2, accountSize: 1000000, sizeLabel: '₹10,00,000', fee: 21999, popular: false },
+      { index: 3, accountSize: 2500000, sizeLabel: '₹25,00,000', fee: 48499, popular: false },
+    ],
+  },
+  {
+    slug: '2step',
+    displayLabel: '2-Step',
+    serverLabel: '2-Step Evaluation',
+    leverage: '1:30',
+    profitSplit: '80%',
+    duration: 'Unlimited',
+    maxLoss: '8%',
+    dailyLoss: '3%',
+    profitTarget: '8% + 5%',
+    minDays: '5',
+    rules: { profitTargetPct: 8, dailyLossLimitPct: 3, maxDrawdownPct: 8, minTradingDays: 5, maxDaysAllowed: 365, type: '2step_evaluation_phase1' },
+    sizes: [
+      { index: 0, accountSize: 500000,  sizeLabel: '₹5,00,000',  fee: 11999, popular: false },
+      { index: 1, accountSize: 1000000, sizeLabel: '₹10,00,000', fee: 21999, popular: true  },
+      { index: 2, accountSize: 2500000, sizeLabel: '₹25,00,000', fee: 48499, popular: false },
+    ],
+  },
+];
+
+/**
  * Resolve the Main Website API base URL.
- * Priority: MAINSITE_API_URL env → MAINSITE_WEBHOOK_URL origin → production Railway default.
+ * Priority: MAINSITE_API_URL env → MAINSITE_WEBHOOK_URL origin → production default.
  */
 export function mainSiteApiBase(): string {
   const explicit = process.env.MAINSITE_API_URL;
@@ -66,16 +150,14 @@ export function mainSiteApiBase(): string {
   if (webhook) {
     try {
       const origin = new URL(webhook).origin;
-      // If webhook points to the SPA (fundedwealth.com), use Railway instead
       if (!origin.includes('railway') && !origin.includes('api')) {
-        return 'https://fundedwealth-api-production.up.railway.app';
+        return 'https://api.fundedwealth.com';
       }
       return origin;
     } catch {
       /* fall through */
     }
   }
-  // Production default: the api-server at the custom domain.
   return 'https://api.fundedwealth.com';
 }
 
@@ -95,35 +177,12 @@ export class MainSiteError extends Error {
 }
 
 /**
- * Fetch the production challenge catalog (single source of truth).
- * Authenticated via the internal service secret (x-internal-provision-secret).
+ * Fetch the production challenge catalog.
+ * Returns the local catalog immediately — no network call needed.
+ * The local catalog is kept in sync with @workspace/products (single source of truth).
  */
 export async function fetchCatalog(): Promise<CatalogProduct[]> {
-  const res = await fetch(`${mainSiteApiBase()}/api/provisioning/catalog`, {
-    method: 'GET',
-    headers: internalHeaders(),
-    cache: 'no-store',
-  });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new MainSiteError(
-      `Failed to load production catalog (${res.status}): ${body || res.statusText}`,
-      res.status,
-    );
-  }
-
-  // Guard against SPA catch-all returning HTML with 200
-  const contentType = res.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) {
-    throw new MainSiteError(
-      `Production catalog returned non-JSON (${contentType}). Ensure MAINSITE_API_URL points to the api-server, not the frontend.`,
-      502,
-    );
-  }
-
-  const json = await res.json();
-  return (json.products || []) as CatalogProduct[];
+  return LOCAL_CATALOG;
 }
 
 /**
