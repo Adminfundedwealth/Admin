@@ -163,7 +163,9 @@ export function mainSiteApiBase(): string {
 
 function internalHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const secret = process.env.INTERNAL_PROVISION_SECRET;
+  // Prefer INTERNAL_PROVISION_SECRET; fall back to SUPABASE_SERVICE_ROLE_KEY
+  // Both are accepted by the api-server's allowInternalOrAdmin middleware
+  const secret = process.env.INTERNAL_PROVISION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (secret) headers['x-internal-provision-secret'] = secret;
   return headers;
 }
