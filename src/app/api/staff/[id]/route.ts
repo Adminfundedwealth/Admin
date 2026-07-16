@@ -52,18 +52,17 @@ export async function GET(
       .select('role_id, assigned_at, roles!inner(id, name, description, is_system_role)')
       .eq('staff_id', staffId);
 
-    interface RoleJoin {
-      role_id: string;
-      assigned_at: string;
-      roles: { id: string; name: string; description: string; is_system_role: boolean };
-    }
-    const roles = (assignments as RoleJoin[] || []).map((a) => ({
-      id: a.roles.id,
-      name: a.roles.name,
-      description: a.roles.description,
-      isSystemRole: a.roles.is_system_role,
-      assignedAt: a.assigned_at,
-    }));
+    const roles = (assignments || []).map((a: any) => {
+      // Supabase !inner join returns roles as an array — take first element
+      const role = Array.isArray(a.roles) ? a.roles[0] : a.roles;
+      return {
+        id: role?.id,
+        name: role?.name,
+        description: role?.description,
+        isSystemRole: role?.is_system_role,
+        assignedAt: a.assigned_at,
+      };
+    });
 
     // Fetch recent login history
     const { data: loginHistory } = await supabase
