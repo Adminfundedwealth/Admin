@@ -14,14 +14,14 @@ interface OrderRow { id: string; account_id: string; symbol: string; order_type:
 const statusColors: Record<string, string> = { open: 'bg-blue-100 text-blue-800', filled: 'bg-green-100 text-green-800', cancelled: 'bg-gray-100 text-gray-800', rejected: 'bg-red-100 text-red-800' };
 
 const columns: ColumnDef<OrderRow, any>[] = [
-  { accessorKey: 'account_id', header: 'Account', cell: ({ getValue }) => (getValue() as string).slice(0, 8) + '...' },
-  { accessorKey: 'symbol', header: 'Symbol' },
-  { accessorKey: 'order_type', header: 'Type', cell: ({ getValue }) => (getValue() as string).replace(/_/g, ' ') },
-  { accessorKey: 'direction', header: 'Side', cell: ({ getValue }) => <span className={getValue() === 'buy' ? 'text-green-600' : 'text-red-600'}>{(getValue() as string).toUpperCase()}</span> },
+  { accessorKey: 'account_id', header: 'Account', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? v.slice(0, 8) + '…' : '—'; } },
+  { accessorKey: 'symbol', header: 'Symbol', cell: ({ getValue }) => (getValue() as string | null) || '—' },
+  { accessorKey: 'order_type', header: 'Type', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? v.replace(/_/g, ' ') : '—'; } },
+  { accessorKey: 'direction', header: 'Side', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? <span className={v === 'buy' ? 'text-green-600' : 'text-red-600'}>{v.toUpperCase()}</span> : '—'; } },
   { accessorKey: 'volume', header: 'Volume' },
-  { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => { const s = getValue() as string; return <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${statusColors[s] || ''}`}>{s}</span>; } },
+  { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => { const s = (getValue() as string | null) ?? ''; return <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${statusColors[s] || ''}`}>{s || '—'}</span>; } },
   { accessorKey: 'rejection_reason', header: 'Rejection', cell: ({ getValue }) => getValue() || '—' },
-  { accessorKey: 'submitted_at', header: 'Submitted', cell: ({ getValue }) => new Date(getValue() as string).toLocaleString() },
+  { accessorKey: 'submitted_at', header: 'Submitted', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? new Date(v).toLocaleString() : '—'; } },
 ];
 
 export default function OrdersPage() {

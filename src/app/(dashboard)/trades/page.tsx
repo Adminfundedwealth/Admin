@@ -14,15 +14,15 @@ import type { ColumnDef } from '@tanstack/react-table';
 interface TradeRow { id: string; account_id: string; symbol: string; direction: string; lot_size: number; entry_price: number; exit_price: number | null; profit_loss: number | null; status: string; opened_at: string; closed_at: string | null; duration_seconds: number | null; }
 
 const columns: ColumnDef<TradeRow, any>[] = [
-  { accessorKey: 'account_id', header: 'Account', cell: ({ getValue }) => (getValue() as string).slice(0, 8) + '...' },
-  { accessorKey: 'symbol', header: 'Symbol' },
-  { accessorKey: 'direction', header: 'Direction', cell: ({ getValue }) => <span className={getValue() === 'buy' ? 'text-green-600' : 'text-red-600'}>{(getValue() as string).toUpperCase()}</span> },
+  { accessorKey: 'account_id', header: 'Account', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? v.slice(0, 8) + '…' : '—'; } },
+  { accessorKey: 'symbol', header: 'Symbol', cell: ({ getValue }) => (getValue() as string | null) || '—' },
+  { accessorKey: 'direction', header: 'Direction', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? <span className={v === 'buy' ? 'text-green-600' : 'text-red-600'}>{v.toUpperCase()}</span> : '—'; } },
   { accessorKey: 'lot_size', header: 'Lots' },
   { accessorKey: 'entry_price', header: 'Entry' },
   { accessorKey: 'exit_price', header: 'Exit', cell: ({ getValue }) => getValue() ?? '—' },
   { accessorKey: 'profit_loss', header: 'P&L', cell: ({ getValue }) => { const v = getValue() as number | null; return v !== null ? <span className={v >= 0 ? 'text-green-600' : 'text-red-600'}>{formatCurrency(v)}</span> : '—'; } },
   { accessorKey: 'duration_seconds', header: 'Duration', cell: ({ getValue }) => { const s = getValue() as number | null; if (!s) return '—'; const h = Math.floor(s/3600); const m = Math.floor((s%3600)/60); return h > 0 ? `${h}h ${m}m` : `${m}m`; } },
-  { accessorKey: 'opened_at', header: 'Opened', cell: ({ getValue }) => new Date(getValue() as string).toLocaleString() },
+  { accessorKey: 'opened_at', header: 'Opened', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? new Date(v).toLocaleString() : '—'; } },
 ];
 
 export default function TradesPage() {
