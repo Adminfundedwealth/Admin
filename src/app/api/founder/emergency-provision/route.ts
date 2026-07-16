@@ -303,7 +303,45 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── 5. Call production provisioning pipeline ─────────────────────────────
+    // ── 5. Pre-provision duplicate check ────────────────────────────────────
+    //    Block BEFORE calling the pipeline — if the user already has any
+    //    non-closed account, show it to the founder instead of creating a second one.
+    const { data: existingBeforeProvision } = await supabase
+      .from('trading_accounts')
+      .select('id, account_code, plan, status, balance, created_at')
+      .eq('user_id', userId)
+      .not('status', 'in', '("closed","rejected")')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (existingBeforeProvision && existingBeforeProvision.length > 0) {
+      const existing = existingBeforeProvision[0];
+      return NextResponse.json(
+        {
+          success: false,
+          existing_account: true,
+          data: {
+            user_id: userId,
+            user_email: email,
+            user_name: name,
+            trading_account_id: existing.id,
+            terminal_login: existing.account_code,
+            terminal_email: email.toLowerCase(),
+            terminal_url: process.env.TERMINAL_BASE_URL || 'https://terminal.fundedwealth.com',
+            account_size: existing.balance,
+            challenge_type: existing.plan,
+            status: existing.status,
+          },
+          error: {
+            code: 'EXISTING_ACCOUNT',
+            message: `Is user ke paas pehle se account hai: ${existing.account_code} (${existing.plan}, status: ${existing.status}). Duplicate provision block kiya gaya.`,
+          },
+        },
+        { status: 409 },
+      );
+    }
+
+    // ── 6. Call production provisioning pipeline ─────────────────────────────
     //    BUG 1 ENFORCED: planType = exact slug from catalog, sizeIndex = exact match.
     //    Production service stores correct rules for this plan — no admin override.
     let result;
