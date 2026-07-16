@@ -344,12 +344,17 @@ async function _middleware(request: NextRequest, pathname: string) {
       const cookieToken = request.cookies.get(CSRF_COOKIE_NAME)?.value;
       const headerToken = request.headers.get(CSRF_HEADER_NAME);
 
-      // Only enforce if both exist — missing cookie means first session load
-      if (cookieToken && headerToken && cookieToken !== headerToken) {
-        return NextResponse.json(
-          { error: { code: 'CSRF_INVALID', message: 'CSRF token missing or mismatched' } },
-          { status: 403 }
-        );
+      // Require CSRF header on all mutating requests once a session is established.
+      // If the cookie token is missing, it means the page hasn't been loaded yet —
+      // skip enforcement so the client can navigate and get the token set.
+      // If the cookie exists but no header is sent, or they don't match → block.
+      if (cookieToken) {
+        if (!headerToken || cookieToken !== headerToken) {
+          return NextResponse.json(
+            { error: { code: 'CSRF_INVALID', message: 'CSRF token missing or mismatched' } },
+            { status: 403 }
+          );
+        }
       }
     }
   }
