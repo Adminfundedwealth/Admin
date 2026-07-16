@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/api/fetch';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DataTable } from '@/components/shared/data-table';
 import { FilterBar, SelectFilter, DateRangeFilter } from '@/components/shared/filters';
 import { LoadingState } from '@/components/shared/loading-state';
@@ -10,25 +10,25 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { BatchActionBar, RISK_BATCH_ACTIONS } from '@/components/shared/batch-action-bar';
 import { RowActions, type RowAction } from '@/components/shared/row-actions';
 import { SlidePanel } from '@/components/shared/slide-panel';
-import { KPICard } from '@/components/shared/kpi-card';
-import { Eye, CheckCircle, AlertTriangle, TrendingUp } from 'lucide-react';
+import { Eye, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ColumnDef, RowSelectionState } from '@tanstack/react-table';
 
 // ---------------------------------------------------------------------------
-// Types
+// Types — matches actual risk_events table columns
 // ---------------------------------------------------------------------------
 
 interface RiskRow {
   id: string;
-  alert_type: string;
+  trading_account_id: string | null;
+  challenge_id: string | null;
+  event_type: string | null;
   severity: string;
-  status: string;
-  account_id: string;
-  account_type: string;
-  user_id: string;
-  breach_type: string | null;
-  breach_amount: number | null;
+  rule_type: string | null;
+  threshold_value: number | null;
+  actual_value: number | null;
+  metadata: Record<string, unknown> | null;
+  acknowledged: boolean;
   created_at: string;
 }
 
@@ -66,7 +66,7 @@ export default function RiskPage() {
     .map((idx) => alerts[parseInt(idx)]?.id)
     .filter(Boolean);
 
-  useEffect(() => { fetchAlerts(); }, [filters]);
+  useEffect(() => { fetchAlerts(); }, [filters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchAlerts() {
     setLoading(true);
@@ -103,58 +103,102 @@ export default function RiskPage() {
 
   function getRowActions(row: RiskRow): RowAction[] {
     const actions: RowAction[] = [
-      { id: 'view', label: 'View', icon: <Eye className="h-3.5 w-3.5" />, onClick: () => { setSelectedAlert(row); setPanelOpen(true); } },
+      {
+        id: 'view',
+        label: 'View',
+        icon: <Eye className="h-3.5 w-3.5" />,
+        onClick: () => { setSelectedAlert(row); setPanelOpen(true); },
+      },
     ];
-    if (row.status === 'open') {
-      actions.push({ id: 'acknowledge', label: 'Acknowledge', icon: <CheckCircle className="h-3.5 w-3.5" />, onClick: () => handleBatchAction('acknowledge') });
-    }
-    if (row.status === 'acknowledged') {
-      actions.push({ id: 'resolve', label: 'Resolve', icon: <CheckCircle className="h-3.5 w-3.5" />, onClick: () => handleBatchAction('resolve') });
+    // Use acknowledged boolean to derive status for row actions
+    if (!row.acknowledged) {
+      actions.push({
+        id: 'acknowledge',
+        label: 'Acknowledge',
+        icon: <CheckCircle className="h-3.5 w-3.5" />,
+        onClick: () => handleBatchAction('acknowledge'),
+      });
     }
     return actions;
   }
 
-  const columns: ColumnDef<RiskRow, any>[] = [
+  const columns: ColumnDef<RiskRow, unknown>[] = [
     {
       accessorKey: 'severity',
       header: 'Severity',
       cell: ({ getValue }) => {
-        const s = getValue() as string;
+        const s = (getValue() as string) ?? '';
         return (
-          <span className={cn('px-2 py-0.5 text-[10px] rounded-full font-bold uppercase', severityBadge[s])}>
-            {s}
+          <span className={cn('px-2 py-0.5 text-[10px] rounded-full font-bold uppercase', severityBadge[s] ?? 'bg-muted text-muted-foreground')}>
+            {s || '—'}
           </span>
         );
       },
     },
-    { accessorKey: 'alert_type', header: 'Type' },
-    { accessorKey: 'breach_type', header: 'Breach', cell: ({ getValue }) => getValue() || '—' },
     {
-      accessorKey: 'breach_amount',
-      header: 'Amount',
+      accessorKey: 'event_type',
+      header: 'Type',
+      cell: ({ getValue }) => <span className="text-[12px]">{(getValue() as string) || '—'}</span>,
+    },
+    {
+      accessorKey: 'rule_type',
+      header: 'Rule',
+      cell: ({ getValue }) => <span className="text-[12px]">{(getValue() as string) || '—'}</span>,
+    },
+    {
+      accessorKey: 'threshold_value',
+      header: 'Threshold',
       cell: ({ getValue }) => {
         const val = getValue() as number | null;
-        return val ? <span className="tabular-nums font-mono text-[12px]">${val.toLocaleString()}</span> : '—';
+        return val != null ? (
+          <span className="tabular-nums font-mono text-[12px]">{val.toLocaleString()}</span>
+        ) : '—';
       },
     },
     {
-      accessorKey: 'account_id',
-      header: 'Account',
-      cell: ({ getValue }) => (
-        <span className="font-mono text-[11px]">{(getValue() as string).slice(0, 8)}...</span>
-      ),
+      accessorKey: 'actual_value',
+      header: 'Actual',
+      cell: ({ getValue }) => {
+        const val = getValue() as number | null;
+        return val != null ? (
+          <span className="tabular-nums font-mono text-[12px]">{val.toLocaleString()}</span>
+        ) : '—';
+      },
     },
     {
-      accessorKey: 'status',
+      accessorKey: 'trading_account_id',
+      header: 'Account',
+      cell: ({ getValue }) => {
+        const val = getValue() as string | null;
+        return val ? (
+          <span className="font-mono text-[11px]">{val.slice(0, 8)}…</span>
+        ) : '—';
+      },
+    },
+    {
+      accessorKey: 'acknowledged',
       header: 'Status',
-      cell: ({ getValue }) => <span className="capitalize text-[12px]">{getValue() as string}</span>,
+      cell: ({ getValue }) => {
+        const ack = getValue() as boolean;
+        return (
+          <span className={cn('px-2 py-0.5 text-[10px] rounded-full font-semibold capitalize', ack ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600')}>
+            {ack ? 'Acknowledged' : 'Open'}
+          </span>
+        );
+      },
     },
     {
       accessorKey: 'created_at',
       header: 'Generated',
       cell: ({ getValue }) => {
-        const d = new Date(getValue() as string);
-        return <span className="text-[11px] text-muted-foreground tabular-nums">{d.toLocaleDateString()} {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>;
+        const val = getValue() as string;
+        if (!val) return '—';
+        const d = new Date(val);
+        return (
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            {d.toLocaleDateString()} {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        );
       },
     },
     {
@@ -210,7 +254,6 @@ export default function RiskPage() {
           options={[
             { label: 'Open', value: 'open' },
             { label: 'Acknowledged', value: 'acknowledged' },
-            { label: 'Resolved', value: 'resolved' },
           ]}
         />
         <DateRangeFilter
@@ -249,27 +292,61 @@ export default function RiskPage() {
       />
 
       {/* Slide Panel */}
-      <SlidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="Risk Alert" subtitle={selectedAlert?.alert_type}>
+      <SlidePanel
+        open={panelOpen}
+        onClose={() => setPanelOpen(false)}
+        title="Risk Alert"
+        subtitle={selectedAlert?.event_type ?? undefined}
+      >
         {selectedAlert && (
           <div className="space-y-4">
             {/* Severity bar */}
-            <div className={cn('rounded-md p-3 border', severityBarColor[selectedAlert.severity])}>
+            <div className={cn('rounded-md p-3 border', severityBarColor[selectedAlert.severity] ?? '')}>
               <div className="flex justify-between items-center">
                 <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Severity</span>
-                <span className={cn('px-2 py-0.5 text-[10px] rounded-full font-bold uppercase', severityBadge[selectedAlert.severity])}>
+                <span className={cn('px-2 py-0.5 text-[10px] rounded-full font-bold uppercase', severityBadge[selectedAlert.severity] ?? 'bg-muted text-muted-foreground')}>
                   {selectedAlert.severity}
                 </span>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-[13px]">
-              <div><span className="text-muted-foreground text-[11px]">Type</span><p className="font-medium">{selectedAlert.alert_type}</p></div>
-              <div><span className="text-muted-foreground text-[11px]">Breach</span><p className="font-medium">{selectedAlert.breach_type || '—'}</p></div>
-              <div><span className="text-muted-foreground text-[11px]">Amount</span><p className="font-medium tabular-nums">{selectedAlert.breach_amount ? `$${selectedAlert.breach_amount.toLocaleString()}` : '—'}</p></div>
-              <div><span className="text-muted-foreground text-[11px]">Status</span><p className="font-medium capitalize">{selectedAlert.status}</p></div>
-              <div><span className="text-muted-foreground text-[11px]">Account</span><p className="font-mono text-[11px]">{selectedAlert.account_id}</p></div>
-              <div><span className="text-muted-foreground text-[11px]">User</span><p className="font-mono text-[11px]">{selectedAlert.user_id}</p></div>
-              <div className="col-span-2"><span className="text-muted-foreground text-[11px]">Generated</span><p className="font-medium">{new Date(selectedAlert.created_at).toLocaleString()}</p></div>
+              <div>
+                <span className="text-muted-foreground text-[11px]">Event Type</span>
+                <p className="font-medium">{selectedAlert.event_type || '—'}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground text-[11px]">Rule Type</span>
+                <p className="font-medium">{selectedAlert.rule_type || '—'}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground text-[11px]">Threshold</span>
+                <p className="font-medium tabular-nums">
+                  {selectedAlert.threshold_value != null ? selectedAlert.threshold_value.toLocaleString() : '—'}
+                </p>
+              </div>
+              <div>
+                <span className="text-muted-foreground text-[11px]">Actual Value</span>
+                <p className="font-medium tabular-nums">
+                  {selectedAlert.actual_value != null ? selectedAlert.actual_value.toLocaleString() : '—'}
+                </p>
+              </div>
+              <div>
+                <span className="text-muted-foreground text-[11px]">Status</span>
+                <p className="font-medium capitalize">{selectedAlert.acknowledged ? 'Acknowledged' : 'Open'}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground text-[11px]">Account</span>
+                <p className="font-mono text-[11px]">{selectedAlert.trading_account_id || '—'}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground text-[11px]">Challenge</span>
+                <p className="font-mono text-[11px]">{selectedAlert.challenge_id || '—'}</p>
+              </div>
+              <div className="col-span-2">
+                <span className="text-muted-foreground text-[11px]">Generated</span>
+                <p className="font-medium">{new Date(selectedAlert.created_at).toLocaleString()}</p>
+              </div>
             </div>
           </div>
         )}
@@ -300,7 +377,7 @@ function RiskHeatmap() {
   }
 
   // Default grid if no data
-  const grid = heatmapData.length > 0 ? heatmapData : [
+  const grid: number[][] = heatmapData.length > 0 ? heatmapData : [
     [0, 0, 1, 0],
     [0, 2, 0, 0],
     [1, 0, 0, 0],
@@ -330,11 +407,11 @@ function RiskHeatmap() {
           <div key={label} className="text-[9px] text-center text-muted-foreground font-medium py-1">{label}</div>
         ))}
 
-        {/* Data rows */}
+        {/* Data rows — use React.Fragment with key instead of bare <> to avoid crash */}
         {grid.map((row, rowIdx) => (
-          <>
-            <div key={`label-${rowIdx}`} className="text-[9px] text-muted-foreground font-medium flex items-center">
-              {drawdownLabels[rowIdx]}
+          <React.Fragment key={`row-${rowIdx}`}>
+            <div className="text-[9px] text-muted-foreground font-medium flex items-center">
+              {drawdownLabels[rowIdx] ?? ''}
             </div>
             {row.map((count, colIdx) => (
               <div
@@ -345,7 +422,7 @@ function RiskHeatmap() {
                 {count > 0 ? count : ''}
               </div>
             ))}
-          </>
+          </React.Fragment>
         ))}
       </div>
     </div>
@@ -398,16 +475,18 @@ function CapitalExposureBar() {
 // ---------------------------------------------------------------------------
 
 function RiskScore({ alerts }: { alerts: RiskRow[] }) {
-  const openAlerts = alerts.filter((a) => a.status === 'open');
+  // Derive open alerts from acknowledged boolean (acknowledged=false means open)
+  const openAlerts = alerts.filter((a) => !a.acknowledged);
   const criticalCount = openAlerts.filter((a) => a.severity === 'critical').length;
   const highCount = openAlerts.filter((a) => a.severity === 'high').length;
 
   // Simple score: critical*25 + high*10 + medium*3 + low*1 (capped at 100)
-  const score = Math.min(100,
+  const score = Math.min(
+    100,
     criticalCount * 25 +
     highCount * 10 +
     openAlerts.filter((a) => a.severity === 'medium').length * 3 +
-    openAlerts.filter((a) => a.severity === 'low').length
+    openAlerts.filter((a) => a.severity === 'low').length,
   );
 
   const color = score <= 25 ? 'text-emerald-500' : score <= 50 ? 'text-amber-500' : score <= 75 ? 'text-orange-500' : 'text-red-500';
