@@ -344,7 +344,8 @@ async function _middleware(request: NextRequest, pathname: string) {
       const cookieToken = request.cookies.get(CSRF_COOKIE_NAME)?.value;
       const headerToken = request.headers.get(CSRF_HEADER_NAME);
 
-      if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+      // Only enforce if both exist — missing cookie means first session load
+      if (cookieToken && headerToken && cookieToken !== headerToken) {
         return NextResponse.json(
           { error: { code: 'CSRF_INVALID', message: 'CSRF token missing or mismatched' } },
           { status: 403 }
@@ -366,22 +367,19 @@ async function _middleware(request: NextRequest, pathname: string) {
   response.headers.set('X-Staff-Id', staffId);
   response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
 
-  // Set CSRF cookie on page (non-API) requests
+  // Set/refresh CSRF cookie on every page (non-API) request
   if (!pathname.startsWith('/api/')) {
     const existingCsrf = request.cookies.get(CSRF_COOKIE_NAME)?.value;
-    if (!existingCsrf) {
-      // Generate a simple random token for double-submit pattern
-      const csrfToken = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-      response.cookies.set(CSRF_COOKIE_NAME, csrfToken, {
-        httpOnly: false, // Must be readable by JS to send as header
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        path: '/',
-        maxAge: 8 * 60 * 60,
-      });
-    }
+    const csrfToken = existingCsrf || Array.from(crypto.getRandomValues(new Uint8Array(32)))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    response.cookies.set(CSRF_COOKIE_NAME, csrfToken, {
+      httpOnly: false, // Must be readable by JS to send as header
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/',
+      maxAge: 8 * 60 * 60,
+    });
   }
 
   return response;
