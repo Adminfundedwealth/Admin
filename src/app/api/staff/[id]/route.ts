@@ -19,7 +19,7 @@ const updateStaffSchema = z.object({
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const actor = await getAuthenticatedStaff();
@@ -31,7 +31,7 @@ export async function GET(
     }
 
     const supabase = createAdminClient();
-    const staffId = params.id;
+    const { id: staffId } = await params;
 
     const { data: staff, error } = await supabase
       .from('staff_members')
@@ -52,7 +52,12 @@ export async function GET(
       .select('role_id, assigned_at, roles!inner(id, name, description, is_system_role)')
       .eq('staff_id', staffId);
 
-    const roles = (assignments || []).map((a: any) => ({
+    interface RoleJoin {
+      role_id: string;
+      assigned_at: string;
+      roles: { id: string; name: string; description: string; is_system_role: boolean };
+    }
+    const roles = (assignments as RoleJoin[] || []).map((a) => ({
       id: a.roles.id,
       name: a.roles.name,
       description: a.roles.description,
@@ -99,7 +104,7 @@ export async function GET(
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const actor = await getAuthenticatedStaff();
@@ -120,7 +125,7 @@ export async function PATCH(
     }
 
     const supabase = createAdminClient();
-    const staffId = params.id;
+    const { id: staffId } = await params;
 
     // Fetch current state for audit
     const { data: current } = await supabase
@@ -156,8 +161,8 @@ export async function PATCH(
       );
     }
 
-    // If status changed to disabled, invalidate all sessions
-    if (parsed.data.status === 'disabled') {
+    // If status changed to disabled or locked, invalidate all sessions
+    if (parsed.data.status === 'disabled' || parsed.data.status === 'locked') {
       await supabase
         .from('staff_sessions')
         .update({ invalidated_at: new Date().toISOString() })
@@ -165,18 +170,22 @@ export async function PATCH(
         .is('invalidated_at', null);
     }
 
-    // Audit log
-    await auditLogger.log({
-      actorId: actor.id,
-      actorRole: actor.roles[0] || 'staff',
-      action: 'staff.update',
-      targetEntityType: 'staff_member',
-      targetEntityId: staffId,
-      previousState: current as any,
-      newState: updated as any,
-      ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1',
-      deviceInfo: { userAgent: request.headers.get('user-agent') || '' } as any,
-    });
+    // Audit log — non-fatal: don't let a logging failure kill a successful update
+    try {
+      await auditLogger.log({
+        actorId: actor.id,
+        actorRole: actor.roles[0] || 'staff',
+        action: 'staff.update',
+        targetEntityType: 'staff_member',
+        targetEntityId: staffId,
+        previousState: current as any,
+        newState: updated as any,
+        ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1',
+        deviceInfo: { userAgent: request.headers.get('user-agent') || '' } as any,
+      });
+    } catch (auditErr) {
+      console.error('Audit log failed (non-fatal):', auditErr);
+    }
 
     return NextResponse.json({ data: updated });
   } catch (err) {
