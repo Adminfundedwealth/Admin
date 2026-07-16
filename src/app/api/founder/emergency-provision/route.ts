@@ -202,7 +202,11 @@ export async function POST(request: NextRequest) {
         if (createAuthError) {
           console.error('[EmergencyProvision] Failed to create auth user:', createAuthError.message);
         } else if (newAuthData?.user) {
-          await supabase.from('users').update({ clerk_id: newAuthData.user.id }).eq('id', existingUser.id).catch(() => {});
+          try {
+            await supabase.from('users').update({ clerk_id: newAuthData.user.id }).eq('id', existingUser.id);
+          } catch {
+            // Non-fatal — user exists, clerk_id link failed
+          }
         }
       }
     } else {
