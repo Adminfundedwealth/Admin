@@ -168,12 +168,29 @@ export async function POST(request: NextRequest) {
     if (existingUser) {
       userId = existingUser.id;
       // Update the Supabase Auth password so the user can log in with the new temp password
-      const { data: authUser } = await supabase.auth.admin.listUsers();
-      const matchingAuthUser = authUser?.users?.find((u) => u.email === email.toLowerCase());
+      // Look up auth user by email directly — don't use listUsers() which paginates
+      const { data: authUserData } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+      const matchingAuthUser = authUserData?.users?.find((u) => u.email === email.toLowerCase());
       if (matchingAuthUser) {
-        await supabase.auth.admin.updateUserById(matchingAuthUser.id, {
+        const { error: pwError } = await supabase.auth.admin.updateUserById(matchingAuthUser.id, {
           password: credentials.temporary_password,
         });
+        if (pwError) {
+          console.error('[EmergencyProvision] Failed to update password:', pwError.message);
+        }
+      } else {
+        // Auth user not found by listUsers — try creating one linked to existing profile
+        const { data: newAuthData, error: createAuthError } = await supabase.auth.admin.createUser({
+          email: email.toLowerCase(),
+          password: credentials.temporary_password,
+          email_confirm: true,
+        });
+        if (createAuthError) {
+          console.error('[EmergencyProvision] Failed to create auth user for existing profile:', createAuthError.message);
+        } else if (newAuthData?.user) {
+          // Link auth user to existing profile
+          await supabase.from('users').update({ clerk_id: newAuthData.user.id }).eq('id', existingUser.id).catch(() => {});
+        }
       }
     } else {
       const nameParts = name.trim().split(/\s+/);
