@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/shared/loading-state';
 import {
   Shield, UserPlus, Copy, CheckCircle, AlertTriangle,
-  ExternalLink, RefreshCw, Terminal, Eye, EyeOff,
+  RefreshCw, Terminal, Eye, EyeOff,
 } from 'lucide-react';
 
 interface CatalogSize {
@@ -135,6 +135,7 @@ export default function EmergencyManualProvisionPage() {
   const [result, setResult] = useState<ProvisionResult | null>(null);
   const [existingAccount, setExistingAccount] = useState<ExistingAccountData | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedExisting, setCopiedExisting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState('');
@@ -143,7 +144,7 @@ export default function EmergencyManualProvisionPage() {
     setProductsLoading(true);
     setProductsError('');
     try {
-      const res = await apiFetch('/api/founder/emergency-provision', { credentials: 'include' });
+      const res = await apiFetch('/api/founder/emergency-provision');
       if (!res.ok) {
         const json = await res.json();
         throw new Error(json.error?.message || 'Failed to load products');
@@ -213,7 +214,8 @@ export default function EmergencyManualProvisionPage() {
     }
   }
 
-  // BUG 4: Launch terminal with SSO auto-login
+  // Launch terminal — uses SSO endpoint when trading_account_id is available,
+  // falls back to direct terminal URL when it is null (e.g. existing account lookup)
   async function handleLaunchTerminal(
     tradingAccountId: string | null,
     loginEmail: string,
@@ -222,6 +224,18 @@ export default function EmergencyManualProvisionPage() {
     setLaunching(true);
     setLaunchError('');
     try {
+      // If we have no trading_account_id we can't call the SSO endpoint —
+      // open the terminal login page directly instead.
+      if (!tradingAccountId) {
+        const base = process.env.NEXT_PUBLIC_TERMINAL_URL || 'https://terminal.fundedwealth.com';
+        window.open(
+          `${base}/login?login=${encodeURIComponent(terminalLogin)}&email=${encodeURIComponent(loginEmail)}`,
+          '_blank',
+          'noopener,noreferrer',
+        );
+        return;
+      }
+
       const res = await apiFetch('/api/founder/terminal-launch', {
         method: 'POST',
         body: JSON.stringify({
@@ -235,7 +249,6 @@ export default function EmergencyManualProvisionPage() {
         setLaunchError(json.error?.message || 'Failed to generate launch URL');
         return;
       }
-      // Open the SSO URL — terminal auto-authenticates the user
       window.open(json.launch_url, '_blank', 'noopener,noreferrer');
     } catch {
       setLaunchError('Network error. Could not launch terminal.');
@@ -244,10 +257,10 @@ export default function EmergencyManualProvisionPage() {
     }
   }
 
-  function copyText(text: string) {
+  function copyText(text: string, setFlag: (v: boolean) => void = setCopied) {
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
+    setFlag(true);
+    setTimeout(() => setFlag(false), 3000);
   }
 
   function copyCredentials() {
@@ -279,6 +292,7 @@ export default function EmergencyManualProvisionPage() {
   function resetForm() {
     setName(''); setEmail(''); setPhone('');
     setResult(null); setExistingAccount(null); setError(''); setLaunchError('');
+    setShowPassword(false); setCopied(false); setCopiedExisting(false);
     if (products.length > 0) {
       setSelectedProduct(products[0].slug);
       setAccountSize(products[0].accountSizes[0]);
@@ -483,9 +497,9 @@ export default function EmergencyManualProvisionPage() {
                 `Terminal Login: ${existingAccount.terminal_login}`,
                 `Challenge:      ${existingAccount.challenge_type}`,
                 `Status:         ${existingAccount.status}`,
-              ].join('\n'))} variant="default" className="gap-2">
-                {copied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                {copied ? 'Copied!' : 'Copy Login Details'}
+              ].join('\n'), setCopiedExisting)} variant="default" className="gap-2">
+                {copiedExisting ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {copiedExisting ? 'Copied!' : 'Copy Login Details'}
               </Button>
               <Button
                 onClick={() => handleLaunchTerminal(

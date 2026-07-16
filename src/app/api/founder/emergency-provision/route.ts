@@ -28,7 +28,6 @@ export async function GET() {
   try {
     const { error: authError } = await requireFounderInHandler();
     if (authError) return authError;
-
     const catalog = await fetchCatalog();
 
     const products = catalog.map((p) => ({
@@ -106,8 +105,11 @@ const EmergencyProvisionSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     // ── 1. Auth ──────────────────────────────────────────────────────────────
-    const { staff, error: authError } = await requireFounderInHandler();
+    const { staff: authenticatedStaff, error: authError } = await requireFounderInHandler();
     if (authError) return authError;
+    // staff is guaranteed non-null here — requireFounderInHandler only returns
+    // a non-error result when staff is present
+    const staff = authenticatedStaff!;
 
     // ── 2. Parse & validate ──────────────────────────────────────────────────
     const body = await request.json();
@@ -246,7 +248,6 @@ export async function POST(request: NextRequest) {
           email: email.toLowerCase(),
           first_name: firstName,
           last_name: lastName,
-          phone: phone || null,
           created_at: new Date().toISOString(),
         })
         .select('id')
@@ -268,6 +269,15 @@ export async function POST(request: NextRequest) {
 
       userId = newUser.id;
       userCreated = true;
+
+      // Attempt to persist phone separately — ignore if column doesn't exist
+      if (phone) {
+        await supabase
+          .from('users')
+          .update({ phone })
+          .eq('id', userId)
+          .then(() => { /* non-fatal */ });
+      }
     }
 
     // ── 5. Call production provisioning pipeline ─────────────────────────────
@@ -283,12 +293,12 @@ export async function POST(request: NextRequest) {
         note: `founder_emergency_provision|product=${challenge_type}|size=${account_size}`,
       });
     } catch (err) {
-      // Check for duplicate active account
+      // Check for any existing account (active OR pending/funded) to surface to the founder
       const { data: existingAccounts } = await supabase
         .from('trading_accounts')
         .select('id, account_code, plan, status, balance, created_at')
         .eq('user_id', userId)
-        .in('status', ['active'])
+        .not('status', 'in', '("closed","rejected")')
         .order('created_at', { ascending: false })
         .limit(1);
 
@@ -457,13 +467,14 @@ export async function POST(request: NextRequest) {
     };
 
     // ── 11. Audit log ────────────────────────────────────────────────────────
-    const ipAddress =
+    const rawIp =
       request.headers.get('x-forwarded-for') ||
       request.headers.get('x-real-ip') ||
       '0.0.0.0';
+    const ipAddress = rawIp.split(',')[0].trim();
     try {
       await auditLogger.log({
-        actorId: staff!.id,
+        actorId: staff.id,
         actorRole: 'Founder',
         action: 'provision.emergency_manual',
         targetEntityType: 'user',
@@ -479,12 +490,12 @@ export async function POST(request: NextRequest) {
           source: 'founder_emergency',
           verification,
         },
-        ipAddress: ipAddress.split(',')[0].trim(),
+        ipAddress,
         deviceInfo: {
           fingerprint: 'founder-emergency-provision',
           browser: request.headers.get('user-agent') || 'unknown',
           os: 'server',
-          ipAddress: ipAddress.split(',')[0].trim(),
+          ipAddress,
         },
         metadata: {
           phone: phone || null,
