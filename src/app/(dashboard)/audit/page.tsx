@@ -12,12 +12,12 @@ import type { ColumnDef } from '@tanstack/react-table';
 interface AuditRow { id: string; actor_id: string; actor_role: string; action: string; target_entity_type: string; target_entity_id: string; timestamp: string; ip_address: string; }
 
 const columns: ColumnDef<AuditRow, any>[] = [
-  { accessorKey: 'timestamp', header: 'Timestamp', cell: ({ getValue }) => new Date(getValue() as string).toLocaleString() },
-  { accessorKey: 'actor_role', header: 'Role' },
-  { accessorKey: 'action', header: 'Action' },
-  { accessorKey: 'target_entity_type', header: 'Entity' },
-  { accessorKey: 'target_entity_id', header: 'Target', cell: ({ getValue }) => (getValue() as string).slice(0, 8) + '...' },
-  { accessorKey: 'ip_address', header: 'IP' },
+  { accessorKey: 'timestamp', header: 'Timestamp', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? new Date(v).toLocaleString() : '—'; } },
+  { accessorKey: 'actor_role', header: 'Role', cell: ({ getValue }) => (getValue() as string | null) || '—' },
+  { accessorKey: 'action', header: 'Action', cell: ({ getValue }) => (getValue() as string | null) || '—' },
+  { accessorKey: 'target_entity_type', header: 'Entity', cell: ({ getValue }) => (getValue() as string | null) || '—' },
+  { accessorKey: 'target_entity_id', header: 'Target', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? v.slice(0, 8) + '…' : '—'; } },
+  { accessorKey: 'ip_address', header: 'IP', cell: ({ getValue }) => (getValue() as string | null) || '—' },
 ];
 
 export default function AuditPage() {

@@ -63,12 +63,12 @@ export default function KYCPage() {
   }
 
   const columns: ColumnDef<KYCRow, any>[] = [
-    { accessorKey: 'id', header: 'ID', cell: ({ getValue }) => (getValue() as string).slice(0, 8) + '...' },
-    { accessorKey: 'user_id', header: 'User', cell: ({ getValue }) => (getValue() as string).slice(0, 8) + '...' },
-    { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => { const s = getValue() as string; return <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${statusColors[s] || ''}`}>{s.replace(/_/g, ' ')}</span>; } },
+    { accessorKey: 'id', header: 'ID', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? v.slice(0, 8) + '…' : '—'; } },
+    { accessorKey: 'user_id', header: 'User', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? v.slice(0, 8) + '…' : '—'; } },
+    { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => { const s = (getValue() as string | null) ?? ''; return <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${statusColors[s] || ''}`}>{s ? s.replace(/_/g, ' ') : '—'}</span>; } },
     { accessorKey: 'submission_count', header: 'Attempts' },
     { accessorKey: 'overdue', header: 'Overdue', cell: ({ getValue }) => getValue() ? <span className="text-red-600 font-medium">Yes</span> : 'No' },
-    { accessorKey: 'created_at', header: 'Submitted', cell: ({ getValue }) => new Date(getValue() as string).toLocaleDateString() },
+    { accessorKey: 'created_at', header: 'Submitted', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? new Date(v).toLocaleDateString() : '—'; } },
     { id: 'actions', header: '', cell: ({ row }) => <div className="group"><RowActions actions={getRowActions(row.original)} /></div> },
   ];
 
@@ -85,14 +85,14 @@ export default function KYCPage() {
         <DataTable columns={columns} data={submissions} pageSize={20} totalCount={totalCount} enableRowSelection onRowSelectionChange={setRowSelection} />
       )}
       <BatchActionBar selectedCount={selectedIds.length} actions={KYC_BATCH_ACTIONS} onAction={handleBatchAction} onClear={() => setRowSelection({})} />
-      <SlidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="KYC Submission" subtitle={selectedKYC?.id.slice(0, 12)}>
+      <SlidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="KYC Submission" subtitle={selectedKYC?.id ? selectedKYC.id.slice(0, 12) : undefined}>
         {selectedKYC && (
           <div className="space-y-3 text-sm">
-            <div className="flex justify-between"><span className="text-muted-foreground">User</span><span className="font-mono text-xs">{selectedKYC.user_id.slice(0, 12)}...</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="capitalize">{selectedKYC.status.replace(/_/g, ' ')}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">User</span><span className="font-mono text-xs">{selectedKYC.user_id ? selectedKYC.user_id.slice(0, 12) + '…' : '—'}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="capitalize">{selectedKYC.status ? selectedKYC.status.replace(/_/g, ' ') : '—'}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Attempts</span><span>{selectedKYC.submission_count}/3</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Overdue</span><span className={selectedKYC.overdue ? 'text-red-600' : ''}>{selectedKYC.overdue ? 'Yes' : 'No'}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Submitted</span><span>{new Date(selectedKYC.created_at).toLocaleString()}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Submitted</span><span>{selectedKYC.created_at ? new Date(selectedKYC.created_at).toLocaleString() : '—'}</span></div>
           </div>
         )}
       </SlidePanel>

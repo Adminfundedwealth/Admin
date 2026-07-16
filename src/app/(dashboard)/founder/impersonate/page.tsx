@@ -35,8 +35,8 @@ export default function ImpersonatePage() {
       const json = await res.json();
       // Client-side filter since staff list is typically small
       const filtered = (json.data || []).filter((s: any) =>
-        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.email.toLowerCase().includes(searchQuery.toLowerCase())
+        (s.name?.toLowerCase() ?? '').includes(searchQuery.toLowerCase()) ||
+        (s.email?.toLowerCase() ?? '').includes(searchQuery.toLowerCase())
       );
       setResults(filtered.slice(0, 10));
     } catch {
@@ -93,7 +93,7 @@ export default function ImpersonatePage() {
               {results.map((staff) => (
                 <div key={staff.id} className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent/50 transition-colors">
                   <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-                    {staff.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                    {(staff.name || '?').split(' ').map((n: string) => n[0] || '').join('').slice(0, 2)}
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-medium">{staff.name}</p>
