@@ -216,35 +216,56 @@ export async function POST(request: NextRequest) {
       const firstName = nameParts[0] || name;
       const lastName = nameParts.slice(1).join(' ') || null;
 
-      // Create Supabase Auth user with the temporary password — this is what enables login
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: email.toLowerCase(),
-        password: credentials.temporary_password,
-        email_confirm: true, // skip email verification — founder is provisioning manually
-        user_metadata: {
-          full_name: name.trim(),
-          first_name: firstName,
-          last_name: lastName,
-        },
-      });
+      // Check if a Supabase Auth user already exists for this email before creating
+      const { data: existingAuthData } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+      const existingAuthUser = existingAuthData?.users?.find(
+        (u) => u.email?.toLowerCase() === email.toLowerCase()
+      ) || null;
 
-      if (authError || !authData?.user) {
-        return NextResponse.json(
-          {
-            error: {
-              code: 'USER_CREATE_FAILED',
-              message: `Failed to create auth user: ${authError?.message}`,
-            },
+      let authUserId: string;
+
+      if (existingAuthUser) {
+        // Auth user exists but has no public.users row — update password and link below
+        authUserId = existingAuthUser.id;
+        const { error: pwError } = await supabase.auth.admin.updateUserById(authUserId, {
+          password: credentials.temporary_password,
+          email_confirm: true,
+        });
+        if (pwError) {
+          console.error('[EmergencyProvision] Failed to update existing auth user password:', pwError.message);
+        }
+      } else {
+        // Truly new user — create in Supabase Auth
+        const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+          email: email.toLowerCase(),
+          password: credentials.temporary_password,
+          email_confirm: true,
+          user_metadata: {
+            full_name: name.trim(),
+            first_name: firstName,
+            last_name: lastName,
           },
-          { status: 500 },
-        );
+        });
+
+        if (authError || !authData?.user) {
+          return NextResponse.json(
+            {
+              error: {
+                code: 'USER_CREATE_FAILED',
+                message: `Failed to create auth user: ${authError?.message}`,
+              },
+            },
+            { status: 500 },
+          );
+        }
+        authUserId = authData.user.id;
       }
 
       // Insert into public.users table linked to the Supabase Auth user
       const { data: newUser, error: userError } = await supabase
         .from('users')
         .insert({
-          clerk_id: authData.user.id, // Supabase auth user ID maps to clerk_id column
+          clerk_id: authUserId, // Supabase auth user ID maps to clerk_id column
           email: email.toLowerCase(),
           first_name: firstName,
           last_name: lastName,
@@ -254,8 +275,10 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (userError || !newUser) {
-        // Auth user was created — clean up to avoid orphan
-        await supabase.auth.admin.deleteUser(authData.user.id).catch(() => {});
+        // Only delete the auth user if we just created it (not an existing one)
+        if (!existingAuthUser) {
+          await supabase.auth.admin.deleteUser(authUserId).catch(() => {});
+        }
         return NextResponse.json(
           {
             error: {
