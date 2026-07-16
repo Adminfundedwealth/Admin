@@ -167,28 +167,41 @@ export async function POST(request: NextRequest) {
 
     if (existingUser) {
       userId = existingUser.id;
-      // Update the Supabase Auth password so the user can log in with the new temp password
-      // Look up auth user by email directly — don't use listUsers() which paginates
-      const { data: authUserData } = await supabase.auth.admin.listUsers({ perPage: 1000 });
-      const matchingAuthUser = authUserData?.users?.find((u) => u.email === email.toLowerCase());
-      if (matchingAuthUser) {
-        const { error: pwError } = await supabase.auth.admin.updateUserById(matchingAuthUser.id, {
+      // Update the Supabase Auth password.
+      // Use clerk_id (which stores Supabase auth user ID) if available — direct lookup.
+      const { data: profileData } = await supabase
+        .from('users')
+        .select('clerk_id')
+        .eq('id', existingUser.id)
+        .single();
+
+      let authUserId: string | null = profileData?.clerk_id || null;
+
+      if (!authUserId) {
+        // Fall back to email search
+        const { data: authUserData } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+        const matchingAuthUser = authUserData?.users?.find((u) => u.email === email.toLowerCase());
+        authUserId = matchingAuthUser?.id || null;
+      }
+
+      if (authUserId) {
+        const { error: pwError } = await supabase.auth.admin.updateUserById(authUserId, {
           password: credentials.temporary_password,
+          email_confirm: true,
         });
         if (pwError) {
           console.error('[EmergencyProvision] Failed to update password:', pwError.message);
         }
       } else {
-        // Auth user not found by listUsers — try creating one linked to existing profile
+        // Auth user not found — create one and link it
         const { data: newAuthData, error: createAuthError } = await supabase.auth.admin.createUser({
           email: email.toLowerCase(),
           password: credentials.temporary_password,
           email_confirm: true,
         });
         if (createAuthError) {
-          console.error('[EmergencyProvision] Failed to create auth user for existing profile:', createAuthError.message);
+          console.error('[EmergencyProvision] Failed to create auth user:', createAuthError.message);
         } else if (newAuthData?.user) {
-          // Link auth user to existing profile
           await supabase.from('users').update({ clerk_id: newAuthData.user.id }).eq('id', existingUser.id).catch(() => {});
         }
       }
