@@ -120,22 +120,29 @@ export default function FounderDeleteAccountsPage() {
   function handleDeleteSuccess(action: 'archive' | 'permanent_delete', accountId: string) {
     setDeleteModalId(null);
     if (action === 'permanent_delete') {
-      setAccounts((prev) => prev.filter((a) => a.id !== accountId));
+      // Remove from list by matching either id or trading_account_id
+      setAccounts((prev) => prev.filter((a) =>
+        a.id !== accountId && a.trading_account_id !== accountId,
+      ));
     } else {
+      // Mark as archived — match by either id or trading_account_id
       setAccounts((prev) =>
-        prev.map((a) => a.id === accountId ? { ...a, status: 'archived' } : a),
+        prev.map((a) =>
+          (a.id === accountId || a.trading_account_id === accountId)
+            ? { ...a, status: 'archived' }
+            : a,
+        ),
       );
     }
   }
 
   function openDeleteModal(account: AccountRow) {
-    // Use account_code as the label if available (e.g. FW-MI41I7D0E1)
     const label = account.account_code
       ? `${account.account_code}${account.type ? ` — ${account.type.replace(/_/g, ' ')}` : ''}`
       : `${account.id.slice(0, 14)}…${account.type ? ` — ${account.type.replace(/_/g, ' ')}` : ''}`;
     setDeleteModalLabel(label);
-    // Use trading_account_id if available (that's what the API needs for credential purge)
-    // fall back to challenge account id
+    // Always prefer trading_account_id — the API resolves both directions from either ID
+    // If no trading account, fall back to challenge account id
     setDeleteModalId(account.trading_account_id ?? account.id);
   }
 
