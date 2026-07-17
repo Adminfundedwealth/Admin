@@ -119,24 +119,14 @@ export default function FounderDeleteAccountsPage() {
 
   function handleDeleteSuccess(action: 'archive' | 'permanent_delete', accountId: string) {
     setDeleteModalId(null);
-    // Immediately update local state — match by either id or trading_account_id
-    if (action === 'permanent_delete') {
-      setAccounts((prev) => prev.filter((a) =>
-        a.id !== accountId && a.trading_account_id !== accountId,
-      ));
-    } else {
-      setAccounts((prev) =>
-        prev.map((a) =>
-          (a.id === accountId || a.trading_account_id === accountId)
-            ? { ...a, status: 'archived' }
-            : a,
-        ),
-      );
-    }
-    // Also re-fetch from DB after a short delay to ensure DB state is reflected
-    setTimeout(() => {
-      fetchAccounts(activeQuery, statusFilter);
-    }, 1500);
+    // Remove from list immediately regardless of action type
+    // Archive → account becomes 'failed' with ARCHIVED_BY_FOUNDER tag (no longer shown as active)
+    // Delete  → account is gone
+    setAccounts((prev) => prev.filter((a) =>
+      a.id !== accountId && a.trading_account_id !== accountId,
+    ));
+    // Re-fetch to confirm DB state
+    setTimeout(() => fetchAccounts(activeQuery, statusFilter), 1500);
   }
 
   function openDeleteModal(account: AccountRow) {
