@@ -42,6 +42,12 @@ export const sidebarNavigation: NavigationSection[] = [
         href: '/founder/emergency-provision',
         permission: null,
       },
+      {
+        label: 'Delete / Archive Accounts',
+        icon: 'Trash2',
+        href: '/founder/delete-accounts',
+        permission: null,
+      },
     ],
   },
   {

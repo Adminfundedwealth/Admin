@@ -11,8 +11,10 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { BatchActionBar, CHALLENGE_BATCH_ACTIONS } from '@/components/shared/batch-action-bar';
 import { RowActions, type RowAction } from '@/components/shared/row-actions';
 import { SlidePanel } from '@/components/shared/slide-panel';
+import { DeleteArchiveModal } from '@/components/shared/delete-archive-modal';
+import { useIsFounder } from '@/hooks/use-is-founder';
 import { formatCurrency } from '@/lib/utils';
-import { Eye, CheckCircle, XCircle, RotateCcw } from 'lucide-react';
+import { Eye, CheckCircle, XCircle, RotateCcw, Trash2 } from 'lucide-react';
 import type { ColumnDef, RowSelectionState } from '@tanstack/react-table';
 
 // Matches actual challenge_accounts table columns returned by GET /api/challenges
@@ -55,6 +57,7 @@ function deriveProfitPct(row: ChallengeRow): number | null {
 }
 
 export default function ChallengesPage() {
+  const { isFounder } = useIsFounder();
   const [challenges, setChallenges] = useState<ChallengeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -63,6 +66,9 @@ export default function ChallengesPage() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [panelOpen, setPanelOpen] = useState(false);
   const [selectedChallenge, setSelectedChallenge] = useState<ChallengeRow | null>(null);
+  // Delete/Archive modal state
+  const [deleteModalId, setDeleteModalId] = useState<string | null>(null);
+  const [deleteModalLabel, setDeleteModalLabel] = useState('');
 
   const selectedIds = Object.keys(rowSelection)
     .filter((k) => rowSelection[k])
@@ -130,7 +136,34 @@ export default function ChallengesPage() {
     if (row.status === 'failed' || row.status === 'expired') {
       actions.push({ id: 'reset', label: 'Reset', icon: <RotateCcw className="h-3.5 w-3.5" />, onClick: () => handleSingleAction(row.id, 'reset') });
     }
+    // Founder-only: Delete / Archive
+    if (isFounder) {
+      actions.push({
+        id: 'delete-archive',
+        label: 'Delete / Archive…',
+        icon: <Trash2 className="h-3.5 w-3.5" />,
+        variant: 'destructive',
+        onClick: () => {
+          const label = row.id.slice(0, 12) + '…' + (row.type ? ` (${row.type.replace(/_/g, ' ')})` : '');
+          setDeleteModalLabel(label);
+          setDeleteModalId(row.id);
+        },
+      });
+    }
     return actions;
+  }
+
+  function handleDeleteSuccess(action: 'archive' | 'permanent_delete', accountId: string) {
+    setDeleteModalId(null);
+    if (action === 'permanent_delete') {
+      // Remove the account from the list immediately
+      setChallenges((prev) => prev.filter((c) => c.id !== accountId));
+    } else {
+      // Mark as archived in the list (keep visible — filter will hide if status filter is set)
+      setChallenges((prev) =>
+        prev.map((c) => c.id === accountId ? { ...c, status: 'archived' } : c),
+      );
+    }
   }
 
   const columns: ColumnDef<ChallengeRow, unknown>[] = [
@@ -331,9 +364,37 @@ export default function ChallengesPage() {
                 <span className="text-red-600 text-right max-w-[60%]">{selectedChallenge.fail_reason}</span>
               </div>
             )}
+
+            {/* Founder-only: Delete / Archive from slide panel */}
+            {isFounder && (
+              <div className="pt-4 border-t">
+                <button
+                  onClick={() => {
+                    setPanelOpen(false);
+                    const label = selectedChallenge.id.slice(0, 12) + '…' + (selectedChallenge.type ? ` (${selectedChallenge.type.replace(/_/g, ' ')})` : '');
+                    setDeleteModalLabel(label);
+                    setDeleteModalId(selectedChallenge.id);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md text-destructive hover:bg-destructive/10 border border-destructive/30 transition-colors"
+                >
+                  <Trash2 className="h-4 w-4 shrink-0" />
+                  Delete / Archive Account…
+                </button>
+              </div>
+            )}
           </div>
         )}
       </SlidePanel>
+
+      {/* Founder Delete/Archive modal */}
+      {deleteModalId && (
+        <DeleteArchiveModal
+          accountId={deleteModalId}
+          accountLabel={deleteModalLabel}
+          onClose={() => setDeleteModalId(null)}
+          onSuccess={handleDeleteSuccess}
+        />
+      )}
     </div>
   );
 }
