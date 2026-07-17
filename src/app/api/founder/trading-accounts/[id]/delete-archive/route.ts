@@ -357,7 +357,35 @@ export async function POST(
     } catch { /* non-fatal */ }
   }
 
-  // d. Hard-delete trading account
+  // d. Cascade-delete FK-dependent rows first, then hard-delete trading_account
+  //    Known FK children of trading_accounts.id (from live DB FK errors):
+  //      account_metrics, risk_events, trades, trading_orders, terminal_sessions,
+  //      account_performance, account_snapshots, account_stats, drawdown_events,
+  //      payout_requests, sso_tokens
+  if (taId) {
+    // Tables that use 'trading_account_id' column
+    const taIdColTables = [
+      'account_metrics', 'account_performance', 'account_snapshots',
+      'account_stats', 'drawdown_events', 'sso_tokens',
+      'terminal_sessions', 'payout_requests',
+    ];
+    for (const t of taIdColTables) {
+      try {
+        await supabase.from(t).delete().eq('trading_account_id', taId);
+        console.log(`[DeleteArchive] cleared ${t}.trading_account_id=${taId}`);
+      } catch { /* table may not exist */ }
+    }
+
+    // Tables that use 'account_id' column
+    const acctIdColTables = ['trades', 'trading_orders', 'risk_events'];
+    for (const t of acctIdColTables) {
+      try {
+        await supabase.from(t).delete().eq('account_id', taId);
+        console.log(`[DeleteArchive] cleared ${t}.account_id=${taId}`);
+      } catch { /* table may not exist */ }
+    }
+  }
+
   if (taId) {
     const { error: deleteErr } = await supabase
       .from('trading_accounts')
@@ -366,7 +394,7 @@ export async function POST(
 
     if (deleteErr) {
       console.error('[DeleteArchive] trading_account hard-delete error:', deleteErr.message);
-      // FK constraint? Fall back to archiving
+      // Unknown FK still blocking — fall back to archiving
       const { error: fallbackErr } = await supabase
         .from('trading_accounts')
         .update({ status: 'archived', updated_at: now })
