@@ -1,15 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/shared/loading-state';
 import { ErrorState } from '@/components/shared/error-state';
+import { DeleteArchiveModal } from '@/components/shared/delete-archive-modal';
+import { useIsFounder } from '@/hooks/use-is-founder';
 import { LineChart } from '@/components/charts';
 import { formatCurrency, formatPercentage } from '@/lib/utils';
-import { CheckCircle, XCircle, ExternalLink } from 'lucide-react';
+import { CheckCircle, XCircle, ExternalLink, Trash2 } from 'lucide-react';
 
 interface FundedDetail {
   id: string;
@@ -40,7 +42,9 @@ interface EligibilityCriteria {
 
 export default function FundedDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const accountId = params.accountId as string;
+  const { isFounder } = useIsFounder();
   const [account, setAccount] = useState<FundedDetail | null>(null);
   const [eligibility, setEligibility] = useState<EligibilityCriteria | null>(null);
   const [equityCurve, setEquityCurve] = useState<{ date: string; equity: number }[]>([]);
@@ -49,10 +53,9 @@ export default function FundedDetailPage() {
   const [error, setError] = useState('');
   const [actionModal, setActionModal] = useState(false);
   const [reason, setReason] = useState('');
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
-  useEffect(() => { fetchAccount(); }, [accountId]);
-
-  async function fetchAccount() {
+  const fetchAccount = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/funded/${accountId}`);
@@ -62,8 +65,22 @@ export default function FundedDetailPage() {
       setEligibility(json.data.eligibility);
       setEquityCurve(json.data.equityCurve || []);
       setTradeStats(json.data.tradeStats || { total: 0, winRate: 0, avgWin: 0, avgLoss: 0 });
-    } catch { setError('Failed to load account details.'); }
-    finally { setLoading(false); }
+    } catch {
+      setError('Failed to load account details.');
+    } finally {
+      setLoading(false);
+    }
+  }, [accountId]);
+
+  useEffect(() => { fetchAccount(); }, [fetchAccount]);
+
+  function handleDeleteSuccess(action: 'archive' | 'permanent_delete') {
+    setDeleteModalOpen(false);
+    if (action === 'permanent_delete') {
+      router.push('/funded');
+    } else {
+      fetchAccount();
+    }
   }
 
   async function handleModify() {
@@ -86,6 +103,7 @@ export default function FundedDetailPage() {
 
   const traderShare = account.profit_loss > 0 ? account.profit_loss * (account.profit_split_pct / 100) : 0;
   const firmShare = account.profit_loss > 0 ? account.profit_loss - traderShare : 0;
+  const accountLabel = `${account.account_number} (funded)`;
 
   return (
     <div className="space-y-6">
@@ -94,7 +112,14 @@ export default function FundedDetailPage() {
           <h1 className="text-3xl font-bold tracking-tight">{account.account_number}</h1>
           <p className="text-muted-foreground">{formatCurrency(account.account_size)} Funded Account • {account.status}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setActionModal(true)}>Modify Account</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setActionModal(true)}>Modify Account</Button>
+          {isFounder && (
+            <Button variant="destructive" size="sm" className="gap-1.5" onClick={() => setDeleteModalOpen(true)}>
+              <Trash2 className="h-3.5 w-3.5" /> Delete / Archive
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Drawdown Alert */}
@@ -228,6 +253,16 @@ export default function FundedDetailPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Founder Delete / Archive Modal */}
+      {deleteModalOpen && (
+        <DeleteArchiveModal
+          accountId={accountId}
+          accountLabel={accountLabel}
+          onClose={() => setDeleteModalOpen(false)}
+          onSuccess={handleDeleteSuccess}
+        />
       )}
     </div>
   );
