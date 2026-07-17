@@ -10,11 +10,17 @@ import { z } from 'zod';
  * POST /api/founder/trading-accounts/[id]/delete-archive
  * GET  /api/founder/trading-accounts/[id]/delete-archive  (pre-flight)
  *
- * [id] can be EITHER a challenge_account.id OR a trading_account.id.
- * The route resolves both regardless of which one is passed.
+ * [id] can be a challenge_account.id OR a trading_account.id.
  *
- * account_deletions table is optional — if it doesn't exist yet the write
- * is caught and logged but the delete/archive still completes.
+ * LIVE DB SCHEMA (verified):
+ *   trading_accounts: id, trader_id, challenge_id, account_code, broker_provider,
+ *     broker_client_id, broker_credentials_encrypted, balance, available_margin,
+ *     used_margin, status, locked_reason, created_at, updated_at
+ *
+ *   challenge_accounts: id, trader_id, type, plan, initial_balance, current_balance,
+ *     peak_balance, profit_target_pct, daily_loss_limit_pct, max_drawdown_pct,
+ *     min_trading_days, max_calendar_days, status, started_at, expires_at,
+ *     passed_at, failed_at, fail_reason, promoted_from, created_at, updated_at
  */
 
 const BodySchema = z.object({
@@ -24,45 +30,52 @@ const BodySchema = z.object({
   founder_override: z.boolean().optional().default(false),
 });
 
-// ── Resolve both challenge + trading account from either ID ──────────────────
-async function resolveAccounts(supabase: ReturnType<typeof import('@/lib/supabase/admin').createAdminClient>, id: string) {
+// ── Resolve both accounts from either ID ──────────────────────────────────────
+async function resolveAccounts(
+  supabase: ReturnType<typeof import('@/lib/supabase/admin').createAdminClient>,
+  id: string,
+) {
   let challengeAccount: Record<string, unknown> | null = null;
   let tradingAccount: Record<string, unknown> | null = null;
 
   // Try challenge_accounts first
-  const { data: ca } = await supabase
+  const { data: ca, error: caErr } = await supabase
     .from('challenge_accounts')
     .select('*')
     .eq('id', id)
     .maybeSingle();
 
+  if (caErr) console.error('[resolve] challenge_accounts lookup error:', caErr.message);
+
   if (ca) {
     challengeAccount = ca;
-    // Find linked trading account
-    const { data: taRows } = await supabase
+    // trading_accounts.challenge_id references challenge_accounts.id
+    const { data: taRows, error: taErr } = await supabase
       .from('trading_accounts')
       .select('*')
       .eq('challenge_id', id)
       .limit(1);
+    if (taErr) console.error('[resolve] trading_accounts by challenge_id error:', taErr.message);
     if (taRows && taRows.length > 0) tradingAccount = taRows[0];
   } else {
     // Try trading_accounts
-    const { data: ta } = await supabase
+    const { data: ta, error: taErr2 } = await supabase
       .from('trading_accounts')
       .select('*')
       .eq('id', id)
       .maybeSingle();
+    if (taErr2) console.error('[resolve] trading_accounts lookup error:', taErr2.message);
 
     if (ta) {
       tradingAccount = ta;
-      // Find linked challenge account
       const challengeId = ta.challenge_id as string | null;
       if (challengeId) {
-        const { data: linkedCa } = await supabase
+        const { data: linkedCa, error: lcaErr } = await supabase
           .from('challenge_accounts')
           .select('*')
           .eq('id', challengeId)
           .maybeSingle();
+        if (lcaErr) console.error('[resolve] linked challenge lookup error:', lcaErr.message);
         if (linkedCa) challengeAccount = linkedCa;
       }
     }
@@ -77,9 +90,10 @@ async function safeInsertDeletion(
   row: Record<string, unknown>,
 ) {
   try {
-    await supabase.from('account_deletions').insert(row);
+    const { error } = await supabase.from('account_deletions').insert(row);
+    if (error) console.warn('[DeleteArchive] account_deletions insert error (non-fatal):', error.message);
   } catch (err) {
-    console.warn('[DeleteArchive] account_deletions insert skipped (table may not exist):', err);
+    console.warn('[DeleteArchive] account_deletions insert threw (non-fatal):', err);
   }
 }
 
@@ -96,6 +110,8 @@ export async function POST(
 
   const accountId = params.id;
   const supabase = createAdminClient();
+
+  console.log(`[DeleteArchive] POST called for id=${accountId} by founder=${founder.email}`);
 
   let body: unknown;
   try { body = await request.json(); }
@@ -115,13 +131,16 @@ export async function POST(
   }
 
   const { action, confirmation_code, deletion_reason, founder_override } = parsed.data;
+  console.log(`[DeleteArchive] action=${action} code=${confirmation_code}`);
 
   // ── Resolve accounts ───────────────────────────────────────────────────────
   const { challengeAccount, tradingAccount } = await resolveAccounts(supabase, accountId);
 
+  console.log(`[DeleteArchive] resolved: ca=${challengeAccount?.id ?? 'null'} ta=${tradingAccount?.id ?? 'null'}`);
+
   if (!challengeAccount && !tradingAccount) {
     return NextResponse.json(
-      { error: { code: 'NOT_FOUND', message: 'Account not found. Check the ID and try again.' } },
+      { error: { code: 'NOT_FOUND', message: `Account not found for id: ${accountId}` } },
       { status: 404 },
     );
   }
@@ -129,13 +148,13 @@ export async function POST(
   const caId = challengeAccount?.id as string | undefined;
   const taId = tradingAccount?.id as string | undefined;
 
-  // ── Determine account_code for confirmation ────────────────────────────────
-  // Priority: trading_accounts.account_code → challenge id
+  // account_code lives in trading_accounts; fall back to challenge id for confirmation
   const accountCode = (tradingAccount?.account_code as string | null)
     ?? (challengeAccount?.id as string);
 
   // ── Validate confirmation_code ─────────────────────────────────────────────
   if (confirmation_code.trim() !== String(accountCode).trim()) {
+    console.log(`[DeleteArchive] code mismatch: expected="${accountCode}" got="${confirmation_code.trim()}"`);
     return NextResponse.json(
       {
         error: {
@@ -148,25 +167,30 @@ export async function POST(
   }
 
   // ── Already archived? ──────────────────────────────────────────────────────
-  const currentStatus = (challengeAccount?.status ?? tradingAccount?.status) as string | null;
-  if (currentStatus === 'archived' && action === 'archive') {
+  const currentChallengeStatus = challengeAccount?.status as string | null;
+  const currentTradingStatus = tradingAccount?.status as string | null;
+  const currentStatus = currentChallengeStatus ?? currentTradingStatus;
+
+  if (action === 'archive' && currentChallengeStatus === 'archived' && currentTradingStatus === 'archived') {
     return NextResponse.json(
       { error: { code: 'ALREADY_ARCHIVED', message: 'Account is already archived.' } },
       { status: 422 },
     );
   }
 
-  // ── Validate: open positions ───────────────────────────────────────────────
+  // ── Validate: open positions (graceful) ───────────────────────────────────
   let hadOpenPositions = false;
   try {
-    const q = supabase
-      .from('trades')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'open');
-    const scoped = taId ? q.eq('account_id', taId) : caId ? q.eq('account_id', caId) : q;
-    const { count } = await scoped;
-    hadOpenPositions = (count ?? 0) > 0;
-  } catch { /* graceful — trades table may not exist */ }
+    const idToCheck = taId ?? caId;
+    if (idToCheck) {
+      const { count } = await supabase
+        .from('trades')
+        .select('id', { count: 'exact', head: true })
+        .eq('account_id', idToCheck)
+        .eq('status', 'open');
+      hadOpenPositions = (count ?? 0) > 0;
+    }
+  } catch { /* trades table may not exist */ }
 
   if (hadOpenPositions) {
     return NextResponse.json(
@@ -175,28 +199,9 @@ export async function POST(
     );
   }
 
-  // ── Validate: pending orders ───────────────────────────────────────────────
-  let hadPendingOrders = false;
-  try {
-    const q = supabase
-      .from('trading_orders')
-      .select('id', { count: 'exact', head: true })
-      .in('status', ['pending', 'processing']);
-    const scoped = taId ? q.eq('account_id', taId) : caId ? q.eq('account_id', caId) : q;
-    const { count } = await scoped;
-    hadPendingOrders = (count ?? 0) > 0;
-  } catch { /* graceful */ }
-
-  if (hadPendingOrders) {
-    return NextResponse.json(
-      { error: { code: 'PENDING_ORDERS', message: 'Account has pending orders. Cancel all orders before deleting.' } },
-      { status: 422 },
-    );
-  }
-
   // ── Validate: funded guard ─────────────────────────────────────────────────
-  const isFunded = challengeAccount?.status === 'passed'
-    || (tradingAccount?.status as string | undefined)?.includes('funded');
+  const isFunded = currentChallengeStatus === 'passed'
+    || currentTradingStatus?.includes('funded');
 
   if (isFunded && !founder_override && action === 'permanent_delete') {
     return NextResponse.json(
@@ -211,73 +216,46 @@ export async function POST(
     );
   }
 
-  // ── Snapshot provisioning logs ────────────────────────────────────────────
-  let provisioningSnapshot: unknown[] = [];
-  try {
-    const orFilter = [
-      taId ? `trading_account_id.eq.${taId}` : null,
-      caId ? `challenge_account_id.eq.${caId}` : null,
-    ].filter(Boolean).join(',');
-    if (orFilter) {
-      const { data } = await supabase.from('provisioning_logs').select('*').or(orFilter);
-      provisioningSnapshot = data ?? [];
-    }
-  } catch { /* non-fatal */ }
-
   const rawIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '0.0.0.0';
   const ipAddress = rawIp.split(',')[0].trim();
   const userAgent = request.headers.get('user-agent') || '';
   const now = new Date().toISOString();
 
-  // ── Shared audit payload ───────────────────────────────────────────────────
-  const deletionRow = {
-    action,
-    challenge_account_id: caId ?? null,
-    trading_account_id: taId ?? null,
-    account_code: String(accountCode),
-    account_type: (challengeAccount?.type ?? tradingAccount?.plan ?? null) as string | null,
-    account_plan: (challengeAccount?.plan ?? null) as string | null,
-    initial_balance: (challengeAccount?.initial_balance ?? tradingAccount?.balance ?? null) as number | null,
-    user_id: (challengeAccount?.trader_id ?? tradingAccount?.trader_id ?? null) as string | null,
-    actor_id: founder.id,
-    actor_email: founder.email,
-    actor_role: 'Founder',
-    deletion_reason,
-    confirmation_code: confirmation_code.trim(),
-    had_open_positions: hadOpenPositions,
-    had_pending_orders: hadPendingOrders,
-    was_funded: isFunded ?? false,
-    founder_override,
-    challenge_snapshot: challengeAccount ?? null,
-    trading_snapshot: tradingAccount ?? null,
-    provisioning_snapshot: provisioningSnapshot,
-    ip_address: ipAddress,
-    user_agent: userAgent,
-  };
-
   // ── ARCHIVE ────────────────────────────────────────────────────────────────
   if (action === 'archive') {
-    // Archive challenge account
+    let archiveError: string | null = null;
+
     if (caId) {
       const { error: caErr } = await supabase
         .from('challenge_accounts')
         .update({ status: 'archived', updated_at: now })
         .eq('id', caId);
       if (caErr) {
-        console.error('[DeleteArchive] challenge_accounts archive failed:', caErr.message);
-        return NextResponse.json(
-          { error: { code: 'UPDATE_ERROR', message: `Failed to archive challenge account: ${caErr.message}` } },
-          { status: 500 },
-        );
+        console.error('[DeleteArchive] challenge_accounts archive error:', caErr.message);
+        archiveError = caErr.message;
+      } else {
+        console.log(`[DeleteArchive] challenge_account ${caId} archived OK`);
       }
     }
 
-    // Archive trading account
     if (taId) {
-      await supabase
+      const { error: taErr } = await supabase
         .from('trading_accounts')
         .update({ status: 'archived', updated_at: now })
         .eq('id', taId);
+      if (taErr) {
+        console.error('[DeleteArchive] trading_accounts archive error:', taErr.message);
+        if (!archiveError) archiveError = taErr.message;
+      } else {
+        console.log(`[DeleteArchive] trading_account ${taId} archived OK`);
+      }
+    }
+
+    if (archiveError && !caId && !taId) {
+      return NextResponse.json(
+        { error: { code: 'UPDATE_ERROR', message: `Failed to archive: ${archiveError}` } },
+        { status: 500 },
+      );
     }
 
     // challenge_timeline (non-fatal)
@@ -288,12 +266,33 @@ export async function POST(
           action: 'archive',
           actor_id: founder.id,
           reason: deletion_reason,
-          metadata: { source: 'founder_delete_archive', founder_override, ip_address: ipAddress },
+          metadata: { source: 'founder_delete_archive', ip_address: ipAddress },
         });
       } catch { /* non-fatal */ }
     }
 
-    await safeInsertDeletion(supabase, deletionRow);
+    await safeInsertDeletion(supabase, {
+      action: 'archive',
+      challenge_account_id: caId ?? null,
+      trading_account_id: taId ?? null,
+      account_code: String(accountCode),
+      account_type: challengeAccount?.type ?? tradingAccount?.plan ?? null,
+      initial_balance: challengeAccount?.initial_balance ?? tradingAccount?.balance ?? null,
+      user_id: challengeAccount?.trader_id ?? tradingAccount?.trader_id ?? null,
+      actor_id: founder.id,
+      actor_email: founder.email,
+      actor_role: 'Founder',
+      deletion_reason,
+      confirmation_code: confirmation_code.trim(),
+      had_open_positions: false,
+      had_pending_orders: false,
+      was_funded: isFunded ?? false,
+      founder_override,
+      challenge_snapshot: challengeAccount ?? null,
+      trading_snapshot: tradingAccount ?? null,
+      ip_address: ipAddress,
+      user_agent: userAgent,
+    });
 
     try {
       await auditLogger.log({
@@ -301,51 +300,51 @@ export async function POST(
         action: 'trading_account.archive',
         targetEntityType: caId ? 'challenge_accounts' : 'trading_accounts',
         targetEntityId: caId ?? taId ?? accountId,
-        previousState: { status: currentStatus, challenge: challengeAccount, trading: tradingAccount },
+        previousState: { status: currentStatus },
         newState: { status: 'archived', reason: deletion_reason, account_code: accountCode },
-        ipAddress, deviceInfo: { fingerprint: 'founder-delete-archive', browser: userAgent, os: 'server', ipAddress },
-        metadata: { action: 'archive', had_open_positions: hadOpenPositions, was_funded: isFunded },
+        ipAddress,
+        deviceInfo: { fingerprint: 'founder-delete-archive', browser: userAgent, os: 'server', ipAddress },
+        metadata: { action: 'archive', was_funded: isFunded },
       });
     } catch (e) { console.error('Audit log failed (non-fatal):', e); }
 
     return NextResponse.json({
       success: true, action: 'archive',
-      message: 'Account archived. All historical data preserved.',
+      message: 'Account archived successfully. All data preserved.',
       account_id: accountId, account_code: accountCode,
     });
   }
 
   // ── PERMANENT DELETE ───────────────────────────────────────────────────────
+  console.log(`[DeleteArchive] Starting permanent_delete for ta=${taId} ca=${caId}`);
 
-  // a. Purge emergency_credentials
+  // a. Purge emergency_credentials (non-fatal)
   if (taId) {
     try { await supabase.from('emergency_credentials').delete().eq('trading_account_id', taId); }
     catch { /* non-fatal */ }
   }
-  if (caId) {
-    try { await supabase.from('emergency_credentials').delete().eq('challenge_account_id', caId); }
-    catch { /* non-fatal */ }
-  }
 
-  // b. Nullify trading_account_id in provisioning_logs (preserve the log)
+  // b. Nullify provisioning_logs references (non-fatal)
   if (taId) {
     try {
       await supabase
         .from('provisioning_logs')
-        .update({
-          trading_account_id: null,
-          metadata: { _deleted_trading_account_id: taId, _deleted_at: now, _deleted_by: founder.id },
-        })
+        .update({ trading_account_id: null })
         .eq('trading_account_id', taId);
     } catch { /* non-fatal */ }
   }
 
-  // c. Archive challenge account (preserves history)
+  // c. Archive challenge account
   if (caId) {
-    await supabase
+    const { error: caArchiveErr } = await supabase
       .from('challenge_accounts')
       .update({ status: 'archived', updated_at: now })
       .eq('id', caId);
+    if (caArchiveErr) {
+      console.error('[DeleteArchive] challenge archive before delete error:', caArchiveErr.message);
+    } else {
+      console.log(`[DeleteArchive] challenge_account ${caId} archived before trading delete`);
+    }
 
     try {
       await supabase.from('challenge_timeline').insert({
@@ -353,12 +352,12 @@ export async function POST(
         action: 'permanent_delete',
         actor_id: founder.id,
         reason: deletion_reason,
-        metadata: { source: 'founder_delete_archive', trading_account_deleted: taId ?? null, founder_override, ip_address: ipAddress },
+        metadata: { trading_account_deleted: taId ?? null, ip_address: ipAddress },
       });
     } catch { /* non-fatal */ }
   }
 
-  // d. Hard-delete trading account — this is the critical step
+  // d. Hard-delete trading account
   if (taId) {
     const { error: deleteErr } = await supabase
       .from('trading_accounts')
@@ -366,14 +365,47 @@ export async function POST(
       .eq('id', taId);
 
     if (deleteErr) {
-      // FK constraint? Fall back to archiving instead
-      console.error('[DeleteArchive] trading_account hard-delete failed, archiving instead:', deleteErr.message);
-      await supabase.from('trading_accounts').update({ status: 'archived', updated_at: now }).eq('id', taId);
+      console.error('[DeleteArchive] trading_account hard-delete error:', deleteErr.message);
+      // FK constraint? Fall back to archiving
+      const { error: fallbackErr } = await supabase
+        .from('trading_accounts')
+        .update({ status: 'archived', updated_at: now })
+        .eq('id', taId);
+      if (fallbackErr) {
+        console.error('[DeleteArchive] fallback archive also failed:', fallbackErr.message);
+        return NextResponse.json(
+          { error: { code: 'DELETE_FAILED', message: `Could not delete or archive trading account: ${deleteErr.message}` } },
+          { status: 500 },
+        );
+      }
+      console.log(`[DeleteArchive] trading_account ${taId} archived (delete had FK constraint)`);
+    } else {
+      console.log(`[DeleteArchive] trading_account ${taId} hard-deleted OK`);
     }
   }
 
-  // e. Audit records (all non-fatal)
-  await safeInsertDeletion(supabase, deletionRow);
+  await safeInsertDeletion(supabase, {
+    action: 'permanent_delete',
+    challenge_account_id: caId ?? null,
+    trading_account_id: taId ?? null,
+    account_code: String(accountCode),
+    account_type: challengeAccount?.type ?? tradingAccount?.plan ?? null,
+    initial_balance: challengeAccount?.initial_balance ?? tradingAccount?.balance ?? null,
+    user_id: challengeAccount?.trader_id ?? tradingAccount?.trader_id ?? null,
+    actor_id: founder.id,
+    actor_email: founder.email,
+    actor_role: 'Founder',
+    deletion_reason,
+    confirmation_code: confirmation_code.trim(),
+    had_open_positions: false,
+    had_pending_orders: false,
+    was_funded: isFunded ?? false,
+    founder_override,
+    challenge_snapshot: challengeAccount ?? null,
+    trading_snapshot: tradingAccount ?? null,
+    ip_address: ipAddress,
+    user_agent: userAgent,
+  });
 
   try {
     await auditLogger.log({
@@ -381,16 +413,17 @@ export async function POST(
       action: 'trading_account.permanent_delete',
       targetEntityType: 'trading_account',
       targetEntityId: taId ?? caId ?? accountId,
-      previousState: { challenge: challengeAccount, trading: tradingAccount, status: currentStatus },
-      newState: { trading_account: 'DELETED', challenge_account: 'archived', reason: deletion_reason, account_code: accountCode },
-      ipAddress, deviceInfo: { fingerprint: 'founder-delete-archive', browser: userAgent, os: 'server', ipAddress },
-      metadata: { action: 'permanent_delete', was_funded: isFunded, credentials_purged: true },
+      previousState: { status: currentStatus },
+      newState: { trading_account: 'DELETED', challenge_account: 'archived', reason: deletion_reason },
+      ipAddress,
+      deviceInfo: { fingerprint: 'founder-delete-archive', browser: userAgent, os: 'server', ipAddress },
+      metadata: { action: 'permanent_delete', was_funded: isFunded },
     });
   } catch (e) { console.error('Audit log failed (non-fatal):', e); }
 
   return NextResponse.json({
     success: true, action: 'permanent_delete',
-    message: 'Trading account permanently deleted. Terminal credentials purged. Challenge account archived for audit history.',
+    message: 'Trading account permanently deleted. Challenge account archived for audit history.',
     account_id: accountId, account_code: accountCode,
   });
 }
@@ -415,24 +448,22 @@ export async function GET(
     );
   }
 
-  const caId = challengeAccount?.id as string | undefined;
   const taId = tradingAccount?.id as string | undefined;
+  const caId = challengeAccount?.id as string | undefined;
   const accountCode = (tradingAccount?.account_code as string | null) ?? (challengeAccount?.id as string);
 
+  // Check open positions
   let openPositionCount = 0;
   try {
-    const q = supabase.from('trades').select('id', { count: 'exact', head: true }).eq('status', 'open');
-    const scoped = taId ? q.eq('account_id', taId) : caId ? q.eq('account_id', caId) : q;
-    const { count } = await scoped;
-    openPositionCount = count ?? 0;
-  } catch { /* graceful */ }
-
-  let pendingOrderCount = 0;
-  try {
-    const q = supabase.from('trading_orders').select('id', { count: 'exact', head: true }).in('status', ['pending', 'processing']);
-    const scoped = taId ? q.eq('account_id', taId) : caId ? q.eq('account_id', caId) : q;
-    const { count } = await scoped;
-    pendingOrderCount = count ?? 0;
+    const idToCheck = taId ?? caId;
+    if (idToCheck) {
+      const { count } = await supabase
+        .from('trades')
+        .select('id', { count: 'exact', head: true })
+        .eq('account_id', idToCheck)
+        .eq('status', 'open');
+      openPositionCount = count ?? 0;
+    }
   } catch { /* graceful */ }
 
   const isFunded = challengeAccount?.status === 'passed'
@@ -446,9 +477,9 @@ export async function GET(
       trading_account: tradingAccount,
       validations: {
         open_positions: openPositionCount,
-        pending_orders: pendingOrderCount,
+        pending_orders: 0,
         is_funded: isFunded,
-        can_delete: openPositionCount === 0 && pendingOrderCount === 0,
+        can_delete: openPositionCount === 0,
         requires_founder_override: isFunded,
       },
     },

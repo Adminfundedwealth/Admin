@@ -119,13 +119,12 @@ export default function FounderDeleteAccountsPage() {
 
   function handleDeleteSuccess(action: 'archive' | 'permanent_delete', accountId: string) {
     setDeleteModalId(null);
+    // Immediately update local state — match by either id or trading_account_id
     if (action === 'permanent_delete') {
-      // Remove from list by matching either id or trading_account_id
       setAccounts((prev) => prev.filter((a) =>
         a.id !== accountId && a.trading_account_id !== accountId,
       ));
     } else {
-      // Mark as archived — match by either id or trading_account_id
       setAccounts((prev) =>
         prev.map((a) =>
           (a.id === accountId || a.trading_account_id === accountId)
@@ -134,6 +133,10 @@ export default function FounderDeleteAccountsPage() {
         ),
       );
     }
+    // Also re-fetch from DB after a short delay to ensure DB state is reflected
+    setTimeout(() => {
+      fetchAccounts(activeQuery, statusFilter);
+    }, 1500);
   }
 
   function openDeleteModal(account: AccountRow) {
