@@ -54,9 +54,9 @@ export async function GET(request: NextRequest) {
 
     const totalPaidMonthly = completed
       .filter(p => p.completed_at && p.completed_at >= startOfMonth)
-      .reduce((sum, p) => sum + (p.calculated_payout || 0), 0);
+      .reduce((sum, p) => sum + (p.calculated_payout ?? 0), 0);
 
-    const totalPending = pending.reduce((sum, p) => sum + (p.calculated_payout || 0), 0);
+    const totalPending = pending.reduce((sum, p) => sum + (p.calculated_payout ?? 0), 0);
 
     const processingTimes = completed
       .filter(p => p.completed_at && p.created_at)
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       data: data || [],
-      meta: { page, pageSize, totalCount: count || 0, totalPages: Math.ceil((count || 0) / pageSize) },
+      meta: { page, pageSize, totalCount: count ?? 0, totalPages: Math.ceil((count ?? 0) / pageSize) },
       analytics: {
         totalPaidDaily: 0,
         totalPaidWeekly: 0,

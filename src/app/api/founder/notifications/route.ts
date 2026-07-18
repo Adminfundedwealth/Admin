@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       data: data || [],
-      meta: { page, pageSize, totalCount: count || 0, totalPages: Math.ceil((count || 0) / pageSize) },
+      meta: { page, pageSize, totalCount: count ?? 0, totalPages: Math.ceil((count ?? 0) / pageSize) },
       unreadCount: unreadCount || 0,
     });
   } catch (err) {

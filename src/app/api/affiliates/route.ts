@@ -18,6 +18,6 @@ export async function GET(request: NextRequest) {
 
     const { data, error, count } = await query;
     if (error) return NextResponse.json({ error: { code: 'QUERY_ERROR', message: error.message } }, { status: 500 });
-    return NextResponse.json({ data: data || [], meta: { page, pageSize, totalCount: count || 0, totalPages: Math.ceil((count || 0) / pageSize) } });
+    return NextResponse.json({ data: data || [], meta: { page, pageSize, totalCount: count ?? 0, totalPages: Math.ceil((count ?? 0) / pageSize) } });
   } catch { return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message: 'Failed' } }, { status: 500 }); }
 }

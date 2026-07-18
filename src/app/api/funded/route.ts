@@ -58,9 +58,9 @@ export async function GET(request: NextRequest) {
       trader_id: row.trader_id,
       type: row.type,
       plan: row.plan,
-      initial_balance: row.initial_balance || 0,
-      current_balance: row.current_balance || 0,
-      peak_balance: row.peak_balance || 0,
+      initial_balance: row.initial_balance ?? 0,
+      current_balance: row.current_balance ?? 0,
+      peak_balance: row.peak_balance ?? 0,
       status: row.status,
       passed_at: row.passed_at || null,
       promoted_from: row.promoted_from || null,
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       data: mapped,
-      meta: { page, pageSize, totalCount: count || 0, totalPages: Math.ceil((count || 0) / pageSize) },
+      meta: { page, pageSize, totalCount: count ?? 0, totalPages: Math.ceil((count ?? 0) / pageSize) },
       source: 'challenge_accounts',
       note: 'funded_accounts table does not exist. Showing challenge_accounts with status=passed.',
     });

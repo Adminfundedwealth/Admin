@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
       meta: {
         page,
         pageSize,
-        totalCount: count || 0,
+        totalCount: count ?? 0,
         totalPages: Math.ceil((count || 0) / pageSize),
       },
     });

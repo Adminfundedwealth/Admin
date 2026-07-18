@@ -41,7 +41,7 @@ export default function AuditPage() {
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setRecords(json.data || []);
-      setTotalCount(json.meta?.totalCount || 0);
+      setTotalCount(json.meta?.totalCount ?? 0);
     } catch { setError('Failed to load audit records.'); }
     finally { setLoading(false); }
   }

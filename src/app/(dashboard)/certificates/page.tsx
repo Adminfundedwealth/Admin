@@ -37,7 +37,7 @@ export default function CertificatesPage() {
       const res = await apiFetch(`/api/certificates?${params.toString()}`);
       const json = await res.json();
       setCerts(json.data || []);
-      setTotalCount(json.meta?.totalCount || 0);
+      setTotalCount(json.meta?.totalCount ?? 0);
     } catch {} finally { setLoading(false); }
   }
 

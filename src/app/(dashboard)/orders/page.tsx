@@ -46,7 +46,7 @@ export default function OrdersPage() {
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setOrders(json.data || []);
-      setTotalCount(json.meta?.totalCount || 0);
+      setTotalCount(json.meta?.totalCount ?? 0);
     } catch { setError('Failed to load orders.'); }
     finally { setLoading(false); }
   }
