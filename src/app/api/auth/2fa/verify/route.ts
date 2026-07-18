@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
     if (delta === null) {
       // Invalid code — track attempts
       // For simplicity, we track 2FA attempts via failed_login_attempts
-      const newAttempts = (staff.failed_login_attempts || 0) + 1;
+      const newAttempts = (staff.failed_login_attempts ?? 0) + 1;
 
       if (newAttempts >= 3) {
         // Lock for 15 minutes

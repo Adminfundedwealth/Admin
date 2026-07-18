@@ -29,7 +29,7 @@ export function BatchActionBar({ selectedCount, actions, onAction, onClear }: Ba
 
   async function handleConfirm() {
     if (!confirmAction) return;
-    if (confirmAction.requiresReason && reason.length < (confirmAction.minReasonLength || 10)) return;
+    if (confirmAction.requiresReason && reason.length < (confirmAction.minReasonLength ?? 10)) return;
     setProcessing(true);
     try {
       await onAction(confirmAction.id, confirmAction.requiresReason ? reason : undefined);
@@ -81,14 +81,14 @@ export function BatchActionBar({ selectedCount, actions, onAction, onClear }: Ba
 
             {confirmAction.requiresReason && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Reason (min {confirmAction.minReasonLength || 10} chars)</label>
+                <label className="text-sm font-medium">Reason (min {confirmAction.minReasonLength ?? 10} chars)</label>
                 <textarea
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="Enter reason for this batch action..."
                   className="w-full min-h-[80px] rounded-lg border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
                 />
-                <p className="text-[10px] text-muted-foreground">{reason.length}/{confirmAction.minReasonLength || 10} min</p>
+                <p className="text-[10px] text-muted-foreground">{reason.length}/{confirmAction.minReasonLength ?? 10} min</p>
               </div>
             )}
 
@@ -101,7 +101,7 @@ export function BatchActionBar({ selectedCount, actions, onAction, onClear }: Ba
                 variant={confirmAction.variant}
                 size="sm"
                 onClick={handleConfirm}
-                disabled={processing || (confirmAction.requiresReason && reason.length < (confirmAction.minReasonLength || 10))}
+                disabled={processing || (confirmAction.requiresReason && reason.length < (confirmAction.minReasonLength ?? 10))}
               >
                 {processing ? 'Processing...' : 'Confirm'}
               </Button>

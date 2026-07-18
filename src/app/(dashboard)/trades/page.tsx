@@ -48,7 +48,7 @@ export default function TradesPage() {
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setTrades(json.data || []);
-      setTotalCount(json.meta?.totalCount || 0);
+      setTotalCount(json.meta?.totalCount ?? 0);
     } catch { setError('Failed to load trades.'); }
     finally { setLoading(false); }
   }

@@ -40,7 +40,7 @@ export default function KYCPage() {
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setSubmissions(json.data || []);
-      setTotalCount(json.meta?.totalCount || 0);
+      setTotalCount(json.meta?.totalCount ?? 0);
     } catch { setError('Failed to load KYC submissions.'); }
     finally { setLoading(false); }
   }

@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
 
     for (const order of ordersData || []) {
       const date = order.created_at.slice(0, 10);
-      revenueByDate[date] = (revenueByDate[date] || 0) + (order.amount || 0);
+      revenueByDate[date] = (revenueByDate[date] ?? 0) + (order.amount ?? 0);
     }
 
     for (const challenge of challengesData || []) {
@@ -62,8 +62,8 @@ export async function GET(request: NextRequest) {
       const dateStr = date.toISOString().slice(0, 10);
       data.push({
         date: dateStr,
-        revenue: revenueByDate[dateStr] || 0,
-        challenges: challengesByDate[dateStr] || 0,
+        revenue: revenueByDate[dateStr] ?? 0,
+        challenges: challengesByDate[dateStr] ?? 0,
       });
     }
 

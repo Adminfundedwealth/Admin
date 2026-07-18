@@ -42,7 +42,7 @@ export default function SupportPage() {
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setTickets(json.data || []);
-      setTotalCount(json.meta?.totalCount || 0);
+      setTotalCount(json.meta?.totalCount ?? 0);
     } catch { setError('Failed to load tickets.'); }
     finally { setLoading(false); }
   }

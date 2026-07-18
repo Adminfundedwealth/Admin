@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
 
     if (!passwordValid) {
       // Increment failed attempts
-      const newAttempts = (staff.failed_login_attempts || 0) + 1;
+      const newAttempts = (staff.failed_login_attempts ?? 0) + 1;
       const updates: Record<string, unknown> = { failed_login_attempts: newAttempts };
 
       // Lock after 5 failures

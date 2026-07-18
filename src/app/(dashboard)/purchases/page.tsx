@@ -126,7 +126,7 @@ export default function PurchaseOrdersPage() {
       if (!res.ok) throw new Error('Failed to fetch purchase orders');
       const json = await res.json();
       setOrders(json.data || []);
-      setTotalCount(json.meta?.totalCount || 0);
+      setTotalCount(json.meta?.totalCount ?? 0);
       setAnalytics(json.analytics || null);
     } catch {
       setError('Failed to load purchase orders.');
