@@ -91,7 +91,7 @@ function MiniSparkline({ data, trend }: { data: number[]; trend: 'up' | 'down' |
 
   const min = Math.min(...data);
   const max = Math.max(...data);
-  const range = (max - min) ?? 1;
+  const range = max - min === 0 ? 1 : max - min;
 
   const points = data.map((val, i) => {
     const x = padding + (i / (data.length - 1)) * (width - padding * 2);
