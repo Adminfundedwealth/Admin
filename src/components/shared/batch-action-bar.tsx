@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { X, CheckCircle, XCircle, RotateCcw, AlertTriangle } from 'lucide-react';
+import { X, CheckCircle, XCircle, RotateCcw, AlertTriangle, RefreshCw, Send, ShieldCheck, Trash2 } from 'lucide-react';
 
 export interface BatchAction {
   id: string;
@@ -133,4 +133,11 @@ export const CHALLENGE_BATCH_ACTIONS: BatchAction[] = [
 export const RISK_BATCH_ACTIONS: BatchAction[] = [
   { id: 'acknowledge', label: 'Acknowledge All', icon: <CheckCircle className="h-3.5 w-3.5" />, variant: 'default' },
   { id: 'resolve', label: 'Resolve All', icon: <CheckCircle className="h-3.5 w-3.5" />, variant: 'outline', requiresReason: true, minReasonLength: 10 },
+];
+
+export const CERTIFICATE_BATCH_ACTIONS: BatchAction[] = [
+  { id: 'regenerate', label: 'Regenerate All', icon: <RefreshCw className="h-3.5 w-3.5" />, variant: 'default' },
+  { id: 'resend',     label: 'Resend Email',   icon: <Send className="h-3.5 w-3.5" />,      variant: 'outline' },
+  { id: 'verify',     label: 'Verify All',     icon: <ShieldCheck className="h-3.5 w-3.5" />, variant: 'outline' },
+  { id: 'delete',     label: 'Delete All',     icon: <Trash2 className="h-3.5 w-3.5" />,    variant: 'destructive', requiresReason: true, minReasonLength: 10 },
 ];

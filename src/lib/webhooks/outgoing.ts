@@ -186,3 +186,44 @@ export async function notifyAccountAction(accountId: string, userId: string, act
   await dispatchWebhook('terminal', `account.${action}`, { account_id: accountId, user_id: userId, reason });
   await dispatchWebhook('mainsite', `account.${action}`, { account_id: accountId, user_id: userId, reason });
 }
+
+/**
+ * Notify Main Site that a certificate has been issued.
+ * Main Site can use this to:
+ *   - Show the certificate badge/banner on the trader's dashboard
+ *   - Update the trader's profile page with the verification link
+ *   - Send a push/in-app notification to the trader
+ *
+ * Payload fields:
+ *   certificate_id      – Admin certificates table UUID
+ *   user_id             – Trader UUID
+ *   payout_id           – Linked payout UUID (optional)
+ *   certificate_type    – profit_certificate | funded_trader | phase_completion
+ *   certificate_number  – Human-readable serial (e.g. FW-CERT-2026-0001)
+ *   amount              – Amount shown on the certificate (INR, nullable)
+ *   download_url        – Signed CDN URL for the PDF (nullable until generated)
+ *   verification_url    – Public shareable verification link (nullable)
+ */
+export async function notifyCertificateIssued(
+  certificateId: string,
+  userId: string,
+  opts: {
+    payout_id?: string | null;
+    certificate_type: string;
+    certificate_number?: string | null;
+    amount?: number | null;
+    download_url?: string | null;
+    verification_url?: string | null;
+  },
+): Promise<void> {
+  await dispatchWebhook('mainsite', 'certificate.issued', {
+    certificate_id: certificateId,
+    user_id: userId,
+    payout_id: opts.payout_id ?? null,
+    certificate_type: opts.certificate_type,
+    certificate_number: opts.certificate_number ?? null,
+    amount: opts.amount ?? null,
+    download_url: opts.download_url ?? null,
+    verification_url: opts.verification_url ?? null,
+  });
+}
