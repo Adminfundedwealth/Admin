@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.json({
       data: data || [],
-      meta: { page, pageSize, totalCount: count || 0, totalPages: Math.ceil((count || 0) / pageSize) },
+      meta: { page, pageSize, totalCount: count ?? 0, totalPages: Math.ceil((count ?? 0) / pageSize) },
       note: 'Trading positions from trading_accounts table (Terminal-owned). Commerce orders are at /api/purchases.',
     });
   } catch {

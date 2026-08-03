@@ -110,7 +110,7 @@ export default function UsersPage() {
 
       const json = await res.json();
       setUsers(json.data || []);
-      setTotalCount(json.meta?.totalCount || 0);
+      setTotalCount(json.meta?.totalCount ?? 0);
     } catch {
       setError('Failed to load users. Please try again.');
     } finally {

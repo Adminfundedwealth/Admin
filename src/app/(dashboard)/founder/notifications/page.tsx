@@ -57,7 +57,7 @@ export default function NotificationsPage() {
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setNotifications(json.data || []);
-      setUnreadCount(json.unreadCount || 0);
+      setUnreadCount(json.unreadCount ?? 0);
     } catch {
       setError('Failed to load notifications.');
     } finally {

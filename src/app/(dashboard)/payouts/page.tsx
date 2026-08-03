@@ -71,7 +71,7 @@ export default function PayoutsPage() {
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setPayouts(json.data || []);
-      setTotalCount(json.meta?.totalCount || 0);
+      setTotalCount(json.meta?.totalCount ?? 0);
       setAnalytics(json.analytics || null);
     } catch { setError('Failed to load payouts.'); }
     finally { setLoading(false); }

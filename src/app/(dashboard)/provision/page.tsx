@@ -509,7 +509,7 @@ Please change your password after first login.`;
               </div>
               <div>
                 <span className="text-xs text-muted-foreground block">Amount</span>
-                <span className="font-medium">₹{(viewOrder.amount || 0).toLocaleString()}</span>
+                <span className="font-medium">₹{(viewOrder.amount ?? 0).toLocaleString()}</span>
               </div>
               <div>
                 <span className="text-xs text-muted-foreground block">Account Size</span>
@@ -766,7 +766,7 @@ Please change your password after first login.`;
                 <div className="font-medium">{modalOrder.user_name || modalOrder.user_email}</div>
                 <div className="text-xs text-muted-foreground">{modalOrder.user_email} · Order {modalOrder.id.slice(0, 8).toUpperCase()}</div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  Amount: ₹{(modalOrder.amount || 0).toLocaleString()} · Status: {modalOrder.status}
+                  Amount: ₹{(modalOrder.amount ?? 0).toLocaleString()} · Status: {modalOrder.status}
                 </div>
               </div>
 

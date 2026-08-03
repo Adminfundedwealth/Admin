@@ -97,9 +97,9 @@ export async function GET(request: NextRequest) {
         product_type: row.plan_type || 'challenge',
         plan_type: row.plan_type || null,
         account_size: row.account_size || null,
-        amount: row.amount || 0,
+        amount: row.amount ?? 0,
         currency: 'INR', // Not stored in orders — default based on platform
-        final_amount: row.amount || 0,
+        final_amount: row.amount ?? 0,
         status: row.status || 'pending',
         payment_method: row.payment_method || null,
         utr_reference: row.utr_reference || null,
@@ -123,14 +123,14 @@ export async function GET(request: NextRequest) {
       totalOrdersToday: todayData.length,
       totalRevenueToday: todayData
         .filter((o: any) => o.status === 'completed' || o.status === 'paid' || o.status === 'active')
-        .reduce((s: number, o: any) => s + (o.amount || 0), 0),
+        .reduce((s: number, o: any) => s + (o.amount ?? 0), 0),
       pendingOrders: todayData.filter((o: any) => o.status === 'pending' || o.status === 'awaiting_payment').length,
       failedOrders: todayData.filter((o: any) => o.status === 'failed' || o.status === 'expired').length,
     };
 
     return NextResponse.json({
       data: mapped,
-      meta: { page, pageSize, totalCount: count || 0, totalPages: Math.ceil((count || 0) / pageSize) },
+      meta: { page, pageSize, totalCount: count ?? 0, totalPages: Math.ceil((count ?? 0) / pageSize) },
       analytics,
     });
   } catch (err) {

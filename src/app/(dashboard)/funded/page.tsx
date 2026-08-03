@@ -74,7 +74,7 @@ export default function FundedPage() {
       if (!res.ok) throw new Error('Failed to fetch');
       const json = await res.json();
       setAccounts(json.data || []);
-      setTotalCount(json.meta?.totalCount || 0);
+      setTotalCount(json.meta?.totalCount ?? 0);
     } catch {
       setError('Failed to load funded accounts.');
     } finally {

@@ -128,10 +128,10 @@ export async function GET(request: NextRequest) {
         order_number: row.id?.slice(0, 8)?.toUpperCase() || '',
         provider: paymentMethod,
         provider_transaction_id: row.utr_reference || null,
-        amount: row.amount || 0,
+        amount: row.amount ?? 0,
         currency: 'INR', // Not in live orders schema — platform default
         fee: 0,
-        net_amount: row.amount || 0,
+        net_amount: row.amount ?? 0,
         status: paymentStatus,
         payment_method_type: paymentMethod,
         is_manual: isManual,
@@ -154,7 +154,7 @@ export async function GET(request: NextRequest) {
     const analytics = {
       totalCollectedToday: todayData
         .filter((o: any) => ['completed', 'active', 'paid'].includes(o.status))
-        .reduce((s: number, o: any) => s + (o.amount || 0), 0),
+        .reduce((s: number, o: any) => s + (o.amount ?? 0), 0),
       totalFeesToday: 0,
       failedCount: todayData.filter((o: any) => o.status === 'failed').length,
       disputedCount: 0,
@@ -162,7 +162,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       data: mapped,
-      meta: { page, pageSize, totalCount: count || 0, totalPages: Math.ceil((count || 0) / pageSize) },
+      meta: { page, pageSize, totalCount: count ?? 0, totalPages: Math.ceil((count ?? 0) / pageSize) },
       analytics,
     });
   } catch (err) {

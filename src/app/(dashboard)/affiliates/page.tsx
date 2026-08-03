@@ -41,7 +41,7 @@ export default function AffiliatesPage() {
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setAffiliates(json.data || []);
-      setTotalCount(json.meta?.totalCount || 0);
+      setTotalCount(json.meta?.totalCount ?? 0);
     } catch { setError('Failed to load affiliates.'); }
     finally { setLoading(false); }
   }
