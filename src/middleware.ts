@@ -367,9 +367,15 @@ async function _middleware(request: NextRequest, pathname: string) {
     .then(() => {});
 
   // Add rate limit + staff identity headers + security headers
-  const response = NextResponse.next();
+  // IMPORTANT: Pass X-Staff-Id as a REQUEST header so API route handlers can read
+  // it via headers() — response.headers only affects the client, not the handler.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('X-Staff-Id', staffId);
+
+  const response = NextResponse.next({
+    request: { headers: requestHeaders },
+  });
   response.headers.set('X-RateLimit-Remaining', rateResult.remaining.toString());
-  response.headers.set('X-Staff-Id', staffId);
   response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
 
   // Set/refresh CSRF cookie on every page (non-API) request
