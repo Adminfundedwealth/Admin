@@ -342,14 +342,15 @@ export async function POST(request: NextRequest) {
     }
 
     // ── 6. Call production provisioning pipeline ─────────────────────────────
-    //    BUG 1 ENFORCED: planType = exact slug from catalog, sizeIndex = exact match.
-    //    Production service stores correct rules for this plan — no admin override.
     let result;
     try {
       result = await provisionViaMainSite({
         planType: challenge_type as PlanSlug,
         sizeIndex,
-        userId,
+        // Do NOT pass userId — let the API server resolve by email to avoid
+        // race conditions where the newly-created users row isn't visible yet
+        // via the pooled database connection.
+        userId: null,
         email: email.toLowerCase(),
         note: `founder_emergency_provision|product=${challenge_type}|size=${account_size}`,
       });
