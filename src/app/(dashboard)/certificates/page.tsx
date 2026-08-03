@@ -4,6 +4,7 @@ import { apiFetch } from '@/lib/api/fetch';
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/shared/data-table';
 import { FilterBar, SelectFilter, DateRangeFilter } from '@/components/shared/filters';
+import { ExportButton } from '@/components/shared/export-button';
 import { LoadingState } from '@/components/shared/loading-state';
 import { EmptyState } from '@/components/shared/empty-state';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,8 @@ import { Award } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 
 interface CertRow { id: string; certificate_number: string; user_id: string; trader_name: string; type: string; status: string; generated_at: string; }
+
+type Filters = { type: string; dateFrom: string; dateTo: string };
 
 const columns: ColumnDef<CertRow, any>[] = [
   { accessorKey: 'certificate_number', header: 'Certificate #' },
@@ -24,7 +27,8 @@ export default function CertificatesPage() {
   const [certs, setCerts] = useState<CertRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
-  const [filters, setFilters] = useState({ type: '', dateFrom: '', dateTo: '' });
+  const [filters, setFilters] = useState<Filters>({ type: '', dateFrom: '', dateTo: '' });
+  const [genModal, setGenModal] = useState(false);
 
   useEffect(() => { fetchCerts(); }, [filters]);
   async function fetchCerts() {
@@ -45,7 +49,13 @@ export default function CertificatesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div><h1 className="text-3xl font-bold tracking-tight">Certificate Center</h1><p className="text-muted-foreground">Generate and manage trader certificates</p></div>
-        <Button className="gap-2"><Award className="h-4 w-4" /> Generate Certificate</Button>
+        <div className="flex items-center gap-2">
+          <ExportButton sourceCenter="certificates" filters={filters} totalCount={totalCount} />
+          <Button onClick={() => setGenModal(true)} className="gap-2">
+            <Award className="h-4 w-4" />
+            Generate Certificate
+          </Button>
+        </div>
       </div>
       <FilterBar onClear={() => setFilters({ type: '', dateFrom: '', dateTo: '' })} hasActiveFilters={Object.values(filters).some(Boolean)}>
         <SelectFilter label="Type" value={filters.type} onChange={(v) => setFilters(f => ({ ...f, type: v }))} options={[{ label: 'Challenge Completion', value: 'challenge_completion' }, { label: 'Funded Trader', value: 'funded_trader' }]} />

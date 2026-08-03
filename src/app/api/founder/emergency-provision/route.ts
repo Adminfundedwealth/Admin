@@ -6,10 +6,7 @@ import { requireFounderInHandler } from '@/lib/security/require-auth';
 import { auditLogger } from '@/lib/audit/logger';
 import {
   fetchCatalog,
-  provisionViaMainSite,
   resolveSizeIndex,
-  MainSiteError,
-  type PlanSlug,
   type CatalogProduct,
 } from '@/lib/provisioning/mainsite-provision';
 import {
@@ -20,9 +17,7 @@ import { z } from 'zod';
 
 /**
  * GET /api/founder/emergency-provision
- *
- * Returns the challenge catalog from the production main-site API.
- * No values are hardcoded — everything reflects the live product catalog.
+ * Returns the live challenge catalog.
  */
 export async function GET() {
   try {
@@ -41,7 +36,6 @@ export async function GET() {
       profitSplit: p.profitSplit,
       duration: p.duration,
       phases: p.slug === '2step' ? 2 : 1,
-      // BUG 1 FIX: expose numeric rules so UI can verify exact stored values
       rules: {
         profitTargetPct: p.rules.profitTargetPct,
         dailyLossLimitPct: p.rules.dailyLossLimitPct,
@@ -61,38 +55,13 @@ export async function GET() {
 
     return NextResponse.json({ products });
   } catch (err) {
-    const status = err instanceof MainSiteError ? err.status : 500;
     console.error('Emergency provision GET error:', err);
     return NextResponse.json(
-      {
-        error: {
-          code: 'CATALOG_UNAVAILABLE',
-          message: err instanceof Error ? err.message : 'Failed to load products',
-        },
-      },
-      { status: status >= 400 ? status : 500 },
+      { error: { code: 'CATALOG_UNAVAILABLE', message: err instanceof Error ? err.message : 'Failed to load products' } },
+      { status: 500 },
     );
   }
 }
-
-/**
- * POST /api/founder/emergency-provision
- *
- * BUG 1: Uses EXACT product from catalog — no default values, no hardcoding.
- *        Passes planType + sizeIndex to production pipeline → correct rules stored.
- *
- * BUG 2: Generates terminal credentials (login, password, token, expiry) and
- *        saves them in trading_accounts.metadata. Returns them to dashboard.
- *
- * BUG 3: After provisioning, re-reads the actual stored account from DB and
- *        returns identical data to what the dashboard and trading platform show.
- *
- * BUG 4: Generates SSO token for terminal launch. Returns launch_url that
- *        auto-logs the user into the terminal without a second login screen.
- *
- * BUG 5: Runs end-to-end verification — checks DB state after provisioning
- *        to confirm product type was preserved, credentials stored, account active.
- */
 
 const EmergencyProvisionSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -102,13 +71,30 @@ const EmergencyProvisionSchema = z.object({
   account_size: z.number().positive('Account size must be positive'),
 });
 
+/**
+ * POST /api/founder/emergency-provision
+ *
+ * Provisions a trading account directly in this Supabase instance.
+ * Does NOT call the main site API — the main site uses a separate DB and
+ * its /api/provisioning/emergency endpoint fails with FK errors when the
+ * user does not exist in the main site's own database.
+ *
+ * Flow:
+ *  1. Auth
+ *  2. Validate input against catalog
+ *  3. Resolve / create user (public.users + Supabase Auth)
+ *  4. Duplicate check
+ *  5. Direct DB provisioning:
+ *     terminal_traders → challenge_accounts → trading_accounts → orders → provisioning_logs
+ *  6. Save credentials to trading_accounts.broker_credentials_encrypted
+ *  7. Audit log
+ *  8. Return full result with credentials
+ */
 export async function POST(request: NextRequest) {
   try {
     // ── 1. Auth ──────────────────────────────────────────────────────────────
     const { staff: authenticatedStaff, error: authError } = await requireFounderInHandler();
     if (authError) return authError;
-    // staff is guaranteed non-null here — requireFounderInHandler only returns
-    // a non-error result when staff is present
     const staff = authenticatedStaff!;
 
     // ── 2. Parse & validate ──────────────────────────────────────────────────
@@ -120,42 +106,27 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-
     const { name, email, phone, challenge_type, account_size } = parsed.data;
 
-    // ── 3. BUG 1: Validate against production catalog — no hardcoded values ──
+    // ── 3. Validate against catalog ──────────────────────────────────────────
     const catalog = await fetchCatalog();
     const product: CatalogProduct | undefined = catalog.find((p) => p.slug === challenge_type);
     if (!product) {
       return NextResponse.json(
-        {
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: `Invalid challenge type: "${challenge_type}". Valid: ${catalog.map((p) => p.slug).join(', ')}`,
-          },
-        },
+        { error: { code: 'VALIDATION_ERROR', message: `Invalid challenge type: "${challenge_type}". Valid: ${catalog.map((p) => p.slug).join(', ')}` } },
         { status: 400 },
       );
     }
-
     const sizeIndex = resolveSizeIndex(catalog, challenge_type, account_size);
     if (sizeIndex === null) {
       return NextResponse.json(
-        {
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: `₹${account_size.toLocaleString()} is not valid for ${product.displayLabel}. Valid: ${product.sizes.map((s) => s.sizeLabel).join(', ')}`,
-          },
-        },
+        { error: { code: 'VALIDATION_ERROR', message: `₹${account_size.toLocaleString()} is not valid for ${product.displayLabel}. Valid: ${product.sizes.map((s) => s.sizeLabel).join(', ')}` } },
         { status: 400 },
       );
     }
 
     // ── 4. Resolve or create user ────────────────────────────────────────────
     const supabase = createAdminClient();
-
-    // Generate credentials NOW (before user creation) so the password is
-    // available when creating the Supabase Auth account.
     const credentials: TerminalCredentials = generateTerminalCredentials();
 
     const { data: existingUser } = await supabase
@@ -169,54 +140,29 @@ export async function POST(request: NextRequest) {
 
     if (existingUser) {
       userId = existingUser.id;
-      // Update the Supabase Auth password.
-      // Use clerk_id (which stores Supabase auth user ID) if available — direct lookup.
-      const { data: profileData } = await supabase
-        .from('users')
-        .select('clerk_id')
-        .eq('id', existingUser.id)
-        .single();
 
+      // Update Supabase Auth password so they can log in with new credentials
+      const { data: profileData } = await supabase.from('users').select('clerk_id').eq('id', existingUser.id).single();
       let authUserId: string | null = profileData?.clerk_id || null;
 
       if (!authUserId) {
-        // Fall back to email search
         const { data: authUserData } = await supabase.auth.admin.listUsers({ perPage: 1000 });
         const matchingAuthUser = authUserData?.users?.find((u) => u.email === email.toLowerCase());
         authUserId = matchingAuthUser?.id || null;
       }
 
       if (authUserId) {
-        const { error: pwError } = await supabase.auth.admin.updateUserById(authUserId, {
+        await supabase.auth.admin.updateUserById(authUserId, {
           password: credentials.temporary_password,
           email_confirm: true,
-        });
-        if (pwError) {
-          console.error('[EmergencyProvision] Failed to update password:', pwError.message);
-        }
-      } else {
-        // Auth user not found — create one and link it
-        const { data: newAuthData, error: createAuthError } = await supabase.auth.admin.createUser({
-          email: email.toLowerCase(),
-          password: credentials.temporary_password,
-          email_confirm: true,
-        });
-        if (createAuthError) {
-          console.error('[EmergencyProvision] Failed to create auth user:', createAuthError.message);
-        } else if (newAuthData?.user) {
-          try {
-            await supabase.from('users').update({ clerk_id: newAuthData.user.id }).eq('id', existingUser.id);
-          } catch {
-            // Non-fatal — user exists, clerk_id link failed
-          }
-        }
+        }).catch((e) => console.error('[EmergencyProvision] Password update failed:', e));
       }
     } else {
       const nameParts = name.trim().split(/\s+/);
       const firstName = nameParts[0] || name;
       const lastName = nameParts.slice(1).join(' ') || null;
 
-      // Check if a Supabase Auth user already exists for this email before creating
+      // Check for existing Supabase Auth user
       const { data: existingAuthData } = await supabase.auth.admin.listUsers({ perPage: 1000 });
       const existingAuthUser = existingAuthData?.users?.find(
         (u) => u.email?.toLowerCase() === email.toLowerCase()
@@ -225,47 +171,31 @@ export async function POST(request: NextRequest) {
       let authUserId: string;
 
       if (existingAuthUser) {
-        // Auth user exists but has no public.users row — update password and link below
         authUserId = existingAuthUser.id;
-        const { error: pwError } = await supabase.auth.admin.updateUserById(authUserId, {
+        await supabase.auth.admin.updateUserById(authUserId, {
           password: credentials.temporary_password,
           email_confirm: true,
-        });
-        if (pwError) {
-          console.error('[EmergencyProvision] Failed to update existing auth user password:', pwError.message);
-        }
+        }).catch(() => {});
       } else {
-        // Truly new user — create in Supabase Auth
-        const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+        const { data: authData, error: authCreateError } = await supabase.auth.admin.createUser({
           email: email.toLowerCase(),
           password: credentials.temporary_password,
           email_confirm: true,
-          user_metadata: {
-            full_name: name.trim(),
-            first_name: firstName,
-            last_name: lastName,
-          },
+          user_metadata: { full_name: name.trim(), first_name: firstName, last_name: lastName },
         });
-
-        if (authError || !authData?.user) {
+        if (authCreateError || !authData?.user) {
           return NextResponse.json(
-            {
-              error: {
-                code: 'USER_CREATE_FAILED',
-                message: `Failed to create auth user: ${authError?.message}`,
-              },
-            },
+            { error: { code: 'USER_CREATE_FAILED', message: `Failed to create auth user: ${authCreateError?.message}` } },
             { status: 500 },
           );
         }
         authUserId = authData.user.id;
       }
 
-      // Insert into public.users table linked to the Supabase Auth user
       const { data: newUser, error: userError } = await supabase
         .from('users')
         .insert({
-          clerk_id: authUserId, // Supabase auth user ID maps to clerk_id column
+          clerk_id: authUserId,
           email: email.toLowerCase(),
           first_name: firstName,
           last_name: lastName,
@@ -275,17 +205,9 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (userError || !newUser) {
-        // Only delete the auth user if we just created it (not an existing one)
-        if (!existingAuthUser) {
-          await supabase.auth.admin.deleteUser(authUserId).catch(() => {});
-        }
+        if (!existingAuthUser) await supabase.auth.admin.deleteUser(authUserId).catch(() => {});
         return NextResponse.json(
-          {
-            error: {
-              code: 'USER_CREATE_FAILED',
-              message: `Failed to create user profile: ${userError?.message}`,
-            },
-          },
+          { error: { code: 'USER_CREATE_FAILED', message: `Failed to create user profile: ${userError?.message}` } },
           { status: 500 },
         );
       }
@@ -293,23 +215,16 @@ export async function POST(request: NextRequest) {
       userId = newUser.id;
       userCreated = true;
 
-      // Attempt to persist phone separately — ignore if column doesn't exist
       if (phone) {
-        await supabase
-          .from('users')
-          .update({ phone })
-          .eq('id', userId)
-          .then(() => { /* non-fatal */ });
+        await supabase.from('users').update({ phone }).eq('id', userId);
       }
     }
 
-    // ── 5. Pre-provision duplicate check ────────────────────────────────────
-    //    Block BEFORE calling the pipeline — if the user already has any
-    //    non-closed account, show it to the founder instead of creating a second one.
+    // ── 5. Duplicate check ───────────────────────────────────────────────────
     const { data: existingBeforeProvision } = await supabase
       .from('trading_accounts')
-      .select('id, account_code, plan, status, balance, created_at')
-      .eq('user_id', userId)
+      .select('id, account_code, status, balance, created_at')
+      .eq('trader_id', (await supabase.from('terminal_traders').select('id').eq('external_id', userId).single()).data?.id ?? 'none')
       .not('status', 'in', '("closed","rejected")')
       .order('created_at', { ascending: false })
       .limit(1);
@@ -329,155 +244,190 @@ export async function POST(request: NextRequest) {
             terminal_email: email.toLowerCase(),
             terminal_url: process.env.TERMINAL_BASE_URL || 'https://terminal.fundedwealth.com',
             account_size: existing.balance,
-            challenge_type: existing.plan,
+            challenge_type,
             status: existing.status,
           },
           error: {
             code: 'EXISTING_ACCOUNT',
-            message: `Is user ke paas pehle se account hai: ${existing.account_code} (${existing.plan}, status: ${existing.status}). Duplicate provision block kiya gaya.`,
+            message: `User already has an active account: ${existing.account_code}. Duplicate provision blocked.`,
           },
         },
         { status: 409 },
       );
     }
 
-    // ── 6. Call production provisioning pipeline ─────────────────────────────
-    //    BUG 1 ENFORCED: planType = exact slug from catalog, sizeIndex = exact match.
-    //    Production service stores correct rules for this plan — no admin override.
-    let result;
-    try {
-      result = await provisionViaMainSite({
-        planType: challenge_type as PlanSlug,
-        sizeIndex,
-        userId,
-        email: email.toLowerCase(),
-        note: `founder_emergency_provision|product=${challenge_type}|size=${account_size}`,
-      });
-    } catch (err) {
-      // Check for any existing account (active OR pending/funded) to surface to the founder
-      const { data: existingAccounts } = await supabase
-        .from('trading_accounts')
-        .select('id, account_code, plan, status, balance, created_at')
-        .eq('user_id', userId)
-        .not('status', 'in', '("closed","rejected")')
-        .order('created_at', { ascending: false })
-        .limit(1);
+    // ── 6. Direct DB provisioning ────────────────────────────────────────────
+    const now = new Date().toISOString();
+    const orderId = `emrg-${Date.now()}-${userId.slice(0, 8)}`;
 
-      if (existingAccounts && existingAccounts.length > 0) {
-        const existing = existingAccounts[0];
+    const planTypeMap: Record<string, string> = {
+      flash:   'flash_funding',
+      instant: 'instant_funding',
+      '1step': 'evaluation_phase1',
+      '2step': 'evaluation_phase1',
+    };
+    const challengeAccountType = planTypeMap[challenge_type] ?? challenge_type;
+
+    // 6a. Upsert terminal_traders
+    const { data: existingTrader } = await supabase
+      .from('terminal_traders')
+      .select('id')
+      .eq('external_id', userId)
+      .single();
+
+    let traderId: string;
+    if (existingTrader) {
+      traderId = existingTrader.id;
+    } else {
+      const { data: newTrader, error: traderErr } = await supabase
+        .from('terminal_traders')
+        .insert({
+          external_id: userId,
+          email: email.toLowerCase(),
+          display_name: name.trim(),
+          plan: challenge_type,
+          status: 'active',
+          preferences: {},
+          created_at: now,
+          updated_at: now,
+        })
+        .select('id')
+        .single();
+      if (traderErr || !newTrader) {
         return NextResponse.json(
-          {
-            success: false,
-            existing_account: true,
-            data: {
-              user_id: userId,
-              user_email: email,
-              user_name: name,
-              trading_account_id: existing.id,
-              terminal_login: existing.account_code,
-              terminal_email: email.toLowerCase(),
-              terminal_url: process.env.TERMINAL_BASE_URL || 'https://terminal.fundedwealth.com',
-              account_size: existing.balance,
-              challenge_type: existing.plan,
-              status: existing.status,
-            },
-            error: {
-              code: 'EXISTING_ACCOUNT',
-              message: `Active account exists: ${existing.account_code}. Manage below.`,
-            },
-          },
-          { status: 409 },
+          { error: { code: 'PROVISION_FAILED', message: `Failed to create trader profile: ${traderErr?.message}` } },
+          { status: 500 },
         );
       }
+      traderId = newTrader.id;
+    }
 
-      const status = err instanceof MainSiteError ? err.status : 500;
+    // 6b. Create challenge_account
+    const { data: challengeAccount, error: caErr } = await supabase
+      .from('challenge_accounts')
+      .insert({
+        trader_id: traderId,
+        type: challengeAccountType,
+        plan: `${Math.round(account_size / 1000)}k-${challenge_type}`,
+        initial_balance: account_size,
+        current_balance: account_size,
+        peak_balance: account_size,
+        profit_target_pct: product.rules.profitTargetPct,
+        daily_loss_limit_pct: product.rules.dailyLossLimitPct,
+        max_drawdown_pct: product.rules.maxDrawdownPct,
+        min_trading_days: product.rules.minTradingDays,
+        max_calendar_days: product.rules.maxDaysAllowed > 1 ? product.rules.maxDaysAllowed : null,
+        status: 'active',
+        started_at: now,
+        created_at: now,
+        updated_at: now,
+      })
+      .select('id')
+      .single();
+
+    if (caErr || !challengeAccount) {
       return NextResponse.json(
-        {
-          error: {
-            code: 'PROVISION_FAILED',
-            message: err instanceof Error ? err.message : 'Provisioning failed',
-          },
-        },
-        { status: status >= 400 ? status : 500 },
+        { error: { code: 'PROVISION_FAILED', message: `Failed to create challenge account: ${caErr?.message}` } },
+        { status: 500 },
       );
     }
 
-    // ── 6. BUG 2: Terminal credentials already generated above (step 4) ────────
-    //    credentials = { terminal_login, temporary_password, activation_token, expiry }
-    //    temporary_password is now backed by a real Supabase Auth account.
+    // 6c. Create trading_account
+    const accountCode = `FW-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    const { data: tradingAccount, error: taErr } = await supabase
+      .from('trading_accounts')
+      .insert({
+        trader_id: traderId,
+        challenge_id: challengeAccount.id,
+        account_code: accountCode,
+        broker_provider: 'internal',
+        balance: account_size,
+        available_margin: account_size,
+        used_margin: 0,
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+      })
+      .select('id')
+      .single();
 
-    // ── 7. BUG 3: Re-read the ACTUAL stored account from DB ──────────────────
-    //    This guarantees dashboard/terminal/admin all show the same data.
-    let storedChallengeAccount: Record<string, unknown> | null = null;
-    let storedTradingAccount: Record<string, unknown> | null = null;
-
-    if (result.challengeAccountId) {
-      const { data: ca } = await supabase
-        .from('challenge_accounts')
-        .select(
-          'id, type, plan, initial_balance, current_balance, profit_target_pct, daily_loss_limit_pct, max_drawdown_pct, min_trading_days, max_calendar_days, status, started_at, expires_at',
-        )
-        .eq('id', result.challengeAccountId)
-        .single();
-      storedChallengeAccount = ca ?? null;
+    if (taErr || !tradingAccount) {
+      return NextResponse.json(
+        { error: { code: 'PROVISION_FAILED', message: `Failed to create trading account: ${taErr?.message}` } },
+        { status: 500 },
+      );
     }
 
-    if (result.tradingAccountId) {
-      const { data: ta } = await supabase
-        .from('trading_accounts')
-        .select('id, account_code, balance, status, created_at')
-        .eq('id', result.tradingAccountId)
-        .single();
-      storedTradingAccount = ta ?? null;
-    }
-
-    // Derive login from account_code (the Match-Trader numeric login)
-    const terminalLogin =
-      (storedTradingAccount?.account_code as string) ??
-      result.accountCode ??
-      credentials.terminal_login;
-
-    // ── 8. Save credentials to trading_accounts.broker_credentials_encrypted ─
-    //    'metadata' column does not exist in live DB.
-    //    'broker_credentials_encrypted' is a TEXT column designed for credentials.
-    //    We store JSON so the dashboard can always re-display them.
-    if (result.tradingAccountId) {
-      const credPayload = JSON.stringify({
-        terminal_login: terminalLogin,
-        temporary_password: credentials.temporary_password,
-        activation_token: credentials.activation_token,
-        credential_expiry: credentials.expiry,
-        provisioned_by: 'founder_emergency',
-        provisioned_at: new Date().toISOString(),
-        product_slug: challenge_type,
-        account_size: account_size,
+    // 6d. Create order record
+    const sizeEntry = product.sizes.find((s) => s.accountSize === account_size);
+    try {
+      await supabase.from('orders').insert({
+        id: orderId,
+        user_id: userId,
+        amount: sizeEntry?.fee ?? 0,
+        account_size,
+        plan_type: challenge_type,
+        status: 'completed',
+        payment_method: 'founder_emergency',
+        created_at: now,
+        updated_at: now,
       });
-      await supabase
-        .from('trading_accounts')
-        .update({ broker_credentials_encrypted: credPayload })
-        .eq('id', result.tradingAccountId);
+    } catch (orderErr) {
+      console.error('[EmergencyProvision] Order insert failed (non-fatal):', orderErr);
     }
 
-    // ── 9. BUG 4: Generate real SSO token via terminal /auth/sso/generate ──────
-    //    Call the terminal's API-key-protected endpoint to get a proper signed JWT.
-    //    This is the same endpoint the main site backend uses.
+    // 6e. Create provisioning_log
+    const { data: provLog } = await supabase
+      .from('provisioning_logs')
+      .insert({
+        trader_id: traderId,
+        trading_account_id: tradingAccount.id,
+        challenge_account_id: challengeAccount.id,
+        order_id: orderId,
+        plan: challenge_type,
+        payment_method: 'founder_emergency',
+        payment_ref: `founder_emergency_provision|product=${challenge_type}|size=${account_size}`,
+        source: 'founder_emergency',
+        status: 'completed',
+        started_at: now,
+        completed_at: now,
+        created_at: now,
+      })
+      .select('id')
+      .single();
+
+    // ── 7. Save credentials ──────────────────────────────────────────────────
+    const terminalLogin = accountCode;
+    const credPayload = JSON.stringify({
+      terminal_login: terminalLogin,
+      temporary_password: credentials.temporary_password,
+      activation_token: credentials.activation_token,
+      credential_expiry: credentials.expiry,
+      provisioned_by: 'founder_emergency',
+      provisioned_at: now,
+      product_slug: challenge_type,
+      account_size,
+    });
+    await supabase
+      .from('trading_accounts')
+      .update({ broker_credentials_encrypted: credPayload })
+      .eq('id', tradingAccount.id);
+
+    // ── 8. SSO launch URL ────────────────────────────────────────────────────
     const terminalBaseUrl = process.env.TERMINAL_BASE_URL || 'https://terminal.fundedwealth.com';
     const ssoApiKey = process.env.SSO_API_KEY || process.env.TERMINAL_SSO_API_KEY || '';
     let launchUrl = `${terminalBaseUrl}/auth/sso?token=${encodeURIComponent(credentials.activation_token)}`;
 
-    if (ssoApiKey && result.tradingAccountId) {
+    if (ssoApiKey) {
       try {
         const ssoRes = await fetch(`${terminalBaseUrl}/auth/sso/generate`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-sso-api-key': ssoApiKey,
-          },
+          headers: { 'Content-Type': 'application/json', 'x-sso-api-key': ssoApiKey },
           body: JSON.stringify({
             fwUserId: userId,
-            traderId: undefined,
-            accountId: result.tradingAccountId,
-            challengeId: result.challengeAccountId,
+            traderId,
+            accountId: tradingAccount.id,
+            challengeId: challengeAccount.id,
             accountCode: terminalLogin,
             plan: challenge_type,
             email: email.toLowerCase(),
@@ -485,53 +435,42 @@ export async function POST(request: NextRequest) {
           }),
           signal: AbortSignal.timeout(8000),
         });
-
         if (ssoRes.ok) {
           const ssoData = await ssoRes.json() as { launchUrl?: string; url?: string; token?: string };
           const resolvedUrl = ssoData.launchUrl || ssoData.url ||
             (ssoData.token ? `${terminalBaseUrl}/auth/sso?token=${encodeURIComponent(ssoData.token)}` : null);
           if (resolvedUrl) launchUrl = resolvedUrl;
         }
-      } catch {
-        // Non-fatal — fallback launch URL is still usable after manual SSO
-      }
+      } catch { /* non-fatal */ }
     }
 
-    // ── 10. BUG 5: Verification — confirm product integrity ──────────────────
-    const verification: Record<string, unknown> = {
+    // ── 9. Re-read stored account for verification ───────────────────────────
+    const { data: storedChallengeAccount } = await supabase
+      .from('challenge_accounts')
+      .select('id, type, plan, initial_balance, current_balance, profit_target_pct, daily_loss_limit_pct, max_drawdown_pct, min_trading_days, max_calendar_days, status, started_at, expires_at')
+      .eq('id', challengeAccount.id)
+      .single();
+
+    const verification = {
       provisioned_slug: challenge_type,
       stored_type: storedChallengeAccount?.type ?? null,
       stored_plan: storedChallengeAccount?.plan ?? null,
       stored_initial_balance: storedChallengeAccount?.initial_balance ?? null,
-      stored_profit_target_pct: storedChallengeAccount?.profit_target_pct ?? null,
-      stored_daily_loss_pct: storedChallengeAccount?.daily_loss_limit_pct ?? null,
-      stored_max_drawdown_pct: storedChallengeAccount?.max_drawdown_pct ?? null,
       catalog_profit_target_pct: product.rules.profitTargetPct,
       catalog_daily_loss_pct: product.rules.dailyLossLimitPct,
       catalog_max_drawdown_pct: product.rules.maxDrawdownPct,
       credentials_generated: true,
       terminal_login_set: !!terminalLogin,
-      account_status: storedChallengeAccount?.status ?? null,
-      // BUG 5: pass/fail checks
       checks: {
-        product_preserved:
-          storedChallengeAccount?.plan === challenge_type ||
-          (typeof storedChallengeAccount?.type === 'string' && storedChallengeAccount.type.includes(challenge_type)) ||
-          // fallback: if we can't read back yet, trust production pipeline
-          storedChallengeAccount === null,
-        balance_correct:
-          storedChallengeAccount === null ||
-          storedChallengeAccount.initial_balance === account_size,
+        product_preserved: storedChallengeAccount?.type === challengeAccountType,
+        balance_correct: storedChallengeAccount?.initial_balance === account_size,
         credentials_ready: !!terminalLogin && !!credentials.temporary_password,
         launch_url_built: !!launchUrl,
       },
     };
 
-    // ── 11. Audit log ────────────────────────────────────────────────────────
-    const rawIp =
-      request.headers.get('x-forwarded-for') ||
-      request.headers.get('x-real-ip') ||
-      '0.0.0.0';
+    // ── 10. Audit log ────────────────────────────────────────────────────────
+    const rawIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '0.0.0.0';
     const ipAddress = rawIp.split(',')[0].trim();
     try {
       await auditLogger.log({
@@ -541,12 +480,11 @@ export async function POST(request: NextRequest) {
         targetEntityType: 'user',
         targetEntityId: userId,
         newState: {
-          email,
-          name,
-          challenge_account_id: result.challengeAccountId,
-          trading_account_id: result.tradingAccountId,
+          email, name,
+          challenge_account_id: challengeAccount.id,
+          trading_account_id: tradingAccount.id,
           account_code: terminalLogin,
-          account_size: result.accountSize,
+          account_size,
           challenge_type,
           source: 'founder_emergency',
           verification,
@@ -561,38 +499,31 @@ export async function POST(request: NextRequest) {
         metadata: {
           phone: phone || null,
           user_existed: !userCreated,
-          provisioning_log_id: result.provisioningLogId,
+          provisioning_log_id: provLog?.id ?? null,
+          order_id: orderId,
         },
       });
     } catch (auditErr) {
       console.error('Audit log failed (non-fatal):', auditErr);
     }
 
-    // ── 12. Return — BUG 2+3+4 all covered in response ──────────────────────
+    // ── 11. Return ────────────────────────────────────────────────────────────
     return NextResponse.json({
       success: true,
       data: {
-        // User identity
         user_id: userId,
         user_email: email,
         user_name: name,
-        // Account IDs
-        challenge_account_id: result.challengeAccountId,
-        trading_account_id: result.tradingAccountId,
-
-        // BUG 2: Full terminal credentials — not just "password sent by platform"
+        challenge_account_id: challengeAccount.id,
+        trading_account_id: tradingAccount.id,
         terminal_login: terminalLogin,
         terminal_email: email.toLowerCase(),
         temporary_password: credentials.temporary_password,
         activation_token: credentials.activation_token,
         credential_expiry: credentials.expiry,
-
-        // BUG 4: SSO launch URL — admin clicks, user enters terminal without re-login
         terminal_url: terminalBaseUrl,
         launch_url: launchUrl,
-
-        // BUG 1: Exact product values from production catalog — not defaults
-        account_size: result.accountSize || account_size,
+        account_size,
         challenge_type: product.slug,
         challenge_display_name: product.displayLabel,
         phases: product.slug === '2step' ? 2 : 1,
@@ -603,8 +534,6 @@ export async function POST(request: NextRequest) {
         leverage: product.leverage,
         profit_split: product.profitSplit,
         duration: product.duration,
-
-        // BUG 3: Actual stored rules from DB (matches what terminal and dashboard see)
         stored_rules: storedChallengeAccount
           ? {
               type: storedChallengeAccount.type,
@@ -618,12 +547,9 @@ export async function POST(request: NextRequest) {
               status: storedChallengeAccount.status,
             }
           : null,
-
-        // BUG 5: Verification results
         verification,
-
         user_created: userCreated,
-        provisioned_at: new Date().toISOString(),
+        provisioned_at: now,
       },
     });
   } catch (err) {
