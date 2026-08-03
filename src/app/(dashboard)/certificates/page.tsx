@@ -334,7 +334,7 @@ export default function CertificatesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <ExportButton sourceCenter="certificates" filters={filters} totalCount={totalCount} />
+          <ExportButton sourceCenter="certificates" filters={filters as Record<string, string>} totalCount={totalCount} />
           <Button onClick={() => setGenModal(true)} className="gap-2">
             <Award className="h-4 w-4" />
             Generate Certificate
