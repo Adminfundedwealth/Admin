@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     // For now, return placeholder response
     // In production: count records, decide sync/async, generate CSV
     const { count } = await supabase.from(sourceCenter === 'users' ? 'users' : sourceCenter === 'trades' ? 'trades' : 'users').select('id', { count: 'exact', head: true });
-    const recordCount = count || 0;
+    const recordCount = count ?? 0;
 
     if (recordCount > 500000) {
       return NextResponse.json({ error: { code: 'EXPORT_LIMIT_EXCEEDED', message: 'Export limited to 500,000 records. Please narrow your filters.' } }, { status: 400 });

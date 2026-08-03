@@ -317,7 +317,7 @@ export function DataTable<TData, TValue>({
           {enableRowSelection && Object.keys(rowSelection).length > 0 && (
             <span className="font-medium">{Object.keys(rowSelection).length} selected · </span>
           )}
-          Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount() || 1}
+          Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount() ?? 1}
         </div>
         <div className="flex items-center gap-2">
           <select

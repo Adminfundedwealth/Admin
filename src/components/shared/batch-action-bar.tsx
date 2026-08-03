@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { X, CheckCircle, XCircle, RotateCcw, AlertTriangle } from 'lucide-react';
+import { X, CheckCircle, XCircle, RotateCcw, AlertTriangle, RefreshCw, Send, ShieldCheck, Trash2 } from 'lucide-react';
 
 export interface BatchAction {
   id: string;
@@ -29,7 +29,7 @@ export function BatchActionBar({ selectedCount, actions, onAction, onClear }: Ba
 
   async function handleConfirm() {
     if (!confirmAction) return;
-    if (confirmAction.requiresReason && reason.length < (confirmAction.minReasonLength || 10)) return;
+    if (confirmAction.requiresReason && reason.length < (confirmAction.minReasonLength ?? 10)) return;
     setProcessing(true);
     try {
       await onAction(confirmAction.id, confirmAction.requiresReason ? reason : undefined);
@@ -81,14 +81,14 @@ export function BatchActionBar({ selectedCount, actions, onAction, onClear }: Ba
 
             {confirmAction.requiresReason && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Reason (min {confirmAction.minReasonLength || 10} chars)</label>
+                <label className="text-sm font-medium">Reason (min {confirmAction.minReasonLength ?? 10} chars)</label>
                 <textarea
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="Enter reason for this batch action..."
                   className="w-full min-h-[80px] rounded-lg border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
                 />
-                <p className="text-[10px] text-muted-foreground">{reason.length}/{confirmAction.minReasonLength || 10} min</p>
+                <p className="text-[10px] text-muted-foreground">{reason.length}/{confirmAction.minReasonLength ?? 10} min</p>
               </div>
             )}
 
@@ -101,7 +101,7 @@ export function BatchActionBar({ selectedCount, actions, onAction, onClear }: Ba
                 variant={confirmAction.variant}
                 size="sm"
                 onClick={handleConfirm}
-                disabled={processing || (confirmAction.requiresReason && reason.length < (confirmAction.minReasonLength || 10))}
+                disabled={processing || (confirmAction.requiresReason && reason.length < (confirmAction.minReasonLength ?? 10))}
               >
                 {processing ? 'Processing...' : 'Confirm'}
               </Button>
@@ -133,4 +133,11 @@ export const CHALLENGE_BATCH_ACTIONS: BatchAction[] = [
 export const RISK_BATCH_ACTIONS: BatchAction[] = [
   { id: 'acknowledge', label: 'Acknowledge All', icon: <CheckCircle className="h-3.5 w-3.5" />, variant: 'default' },
   { id: 'resolve', label: 'Resolve All', icon: <CheckCircle className="h-3.5 w-3.5" />, variant: 'outline', requiresReason: true, minReasonLength: 10 },
+];
+
+export const CERTIFICATE_BATCH_ACTIONS: BatchAction[] = [
+  { id: 'regenerate', label: 'Regenerate All', icon: <RefreshCw className="h-3.5 w-3.5" />, variant: 'default' },
+  { id: 'resend',     label: 'Resend Email',   icon: <Send className="h-3.5 w-3.5" />,      variant: 'outline' },
+  { id: 'verify',     label: 'Verify All',     icon: <ShieldCheck className="h-3.5 w-3.5" />, variant: 'outline' },
+  { id: 'delete',     label: 'Delete All',     icon: <Trash2 className="h-3.5 w-3.5" />,    variant: 'destructive', requiresReason: true, minReasonLength: 10 },
 ];

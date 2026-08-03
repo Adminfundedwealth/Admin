@@ -48,6 +48,13 @@ const PLAN_ICON: Record<string, React.ReactNode> = {
   '2step': <Shield size={12} className="text-purple-400" />,
 };
 
+const PLAN_LABELS: Record<string, string> = {
+  flash: 'Flash',
+  instant: 'Instant',
+  '1step': '1-Step',
+  '2step': '2-Step',
+};
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function RiskRulesPage() {
@@ -165,7 +172,7 @@ export default function RiskRulesPage() {
                 <div className="flex items-center gap-2">
                   {PLAN_ICON[account.planType] ?? <Shield size={12} />}
                   <span className="font-mono text-[12px] font-semibold">{account.accountCode}</span>
-                  <span className="text-[10px] text-muted-foreground capitalize px-1.5 py-0.5 rounded bg-muted">{account.planType}</span>
+                  <span className="text-[10px] text-muted-foreground px-1.5 py-0.5 rounded bg-muted">{PLAN_LABELS[account.planType] ?? account.planType}</span>
                   <span className={cn('text-[10px] px-1.5 py-0.5 rounded capitalize',
                     account.status === 'active' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'
                   )}>{account.status}</span>

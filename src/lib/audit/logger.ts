@@ -98,8 +98,8 @@ export class AuditLogger {
    */
   async query(filters: AuditQueryFilters): Promise<AuditQueryResult> {
     const supabase = createAdminClient();
-    const page = filters.page || 1;
-    const pageSize = Math.min(filters.pageSize || 100, 100);
+    const page = filters.page ?? 1;
+    const pageSize = Math.min(filters.pageSize ?? 100, 100);
     const offset = (page - 1) * pageSize;
 
     let query = supabase
