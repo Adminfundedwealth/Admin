@@ -5,7 +5,25 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 /**
  * GET /api/executive/drill-down?type=active_users|active_challenges|funded_accounts|staff_online
- * Returns detailed list data for Command Center KPI drill-downs.
+ *
+ * LIVE SCHEMA (verified):
+ *   users: id, email, first_name, last_name, city, state, kyc_status, account_status,
+ *          is_active, created_at, updated_at
+ *          NOTE: NO username, country, last_activity_at, last_login_at columns
+ *
+ *   challenge_accounts: id, trader_id, type, plan, initial_balance, current_balance,
+ *          peak_balance, profit_target_pct, daily_loss_limit_pct, max_drawdown_pct,
+ *          min_trading_days, max_calendar_days, status, started_at, expires_at,
+ *          passed_at, failed_at, fail_reason, promoted_from, created_at, updated_at
+ *          NOTE: NO user_id, account_number, phase, profit_pct, trading_days_completed
+ *          NOTE: trader_id references terminal traders (NOT public.users.id)
+ *
+ *   provisioning_logs: id, trader_id, challenge_account_id, order_id, status, created_at
+ *   orders: id, user_id, amount, account_size, plan_type, status, created_at
+ *          — user_id references public.users.id
+ *
+ *   staff_members: id, name, email, status, totp_enabled, created_at
+ *   staff_sessions: id, staff_id, last_activity, invalidated_at, ip_address, browser, os, created_at
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -19,14 +37,13 @@ export async function GET(req: NextRequest) {
 
   try {
     switch (type) {
+      // ─── Active Users ────────────────────────────────────────────────────────
       case 'active_users': {
-        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const { data, error } = await supabase
           .from('users')
-          .select('id, email, first_name, last_name, username, country, last_activity_at, last_login_at, kyc_status, created_at')
+          .select('id, email, first_name, last_name, city, state, kyc_status, account_status, is_active, created_at')
           .eq('account_status', 'active')
-          .gt('last_activity_at', thirtyDaysAgo)
-          .order('last_activity_at', { ascending: false })
+          .order('created_at', { ascending: false })
           .limit(100);
 
         if (error) throw error;
@@ -34,133 +51,187 @@ export async function GET(req: NextRequest) {
         const rows = (data || []).map((u) => ({
           id: u.id,
           email: u.email,
-          name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || '—',
-          country: u.country || '—',
-          lastActive: u.last_activity_at,
-          lastLogin: u.last_login_at,
+          name: [u.first_name, u.last_name].filter(Boolean).join(' ') || '—',
+          location: [u.city, u.state].filter(Boolean).join(', ') || '—',
           kycStatus: u.kyc_status,
+          accountStatus: u.account_status,
+          isActive: u.is_active,
           joinedAt: u.created_at,
         }));
 
         return NextResponse.json({ type, count: rows.length, rows });
       }
 
+      // ─── Active Challenges ───────────────────────────────────────────────────
       case 'active_challenges': {
         const { data, error } = await supabase
           .from('challenge_accounts')
-          .select('id, user_id, account_number, challenge_type, phase, initial_balance, current_balance, profit_pct, trading_days_completed, min_trading_days, started_at, expires_at')
+          .select('id, trader_id, type, plan, initial_balance, current_balance, peak_balance, min_trading_days, started_at, expires_at, created_at')
           .eq('status', 'active')
           .order('started_at', { ascending: false })
           .limit(100);
 
         if (error) throw error;
 
-        // Fetch user emails for the challenge accounts
-        const userIds = Array.from(new Set((data || []).map((c) => c.user_id)));
-        let emailMap: Record<string, string> = {};
-        if (userIds.length > 0) {
-          const { data: users } = await supabase
-            .from('users')
-            .select('id, email, first_name, last_name')
-            .in('id', userIds);
-          emailMap = Object.fromEntries(
-            (users || []).map((u) => [u.id, u.email])
-          );
+        const challengeIds = (data || []).map((c) => c.id);
+        const traderIds = Array.from(new Set((data || []).map((c) => c.trader_id).filter(Boolean)));
+
+        // Try to resolve trader_id → user email via provisioning_logs → orders → users
+        let traderEmailMap: Record<string, string> = {};
+        if (traderIds.length > 0) {
+          const { data: provLogs } = await supabase
+            .from('provisioning_logs')
+            .select('trader_id, order_id')
+            .in('trader_id', traderIds)
+            .not('order_id', 'is', null);
+
+          if (provLogs && provLogs.length > 0) {
+            const orderIds = Array.from(new Set(provLogs.map((p: any) => p.order_id).filter(Boolean)));
+            const traderToOrder: Record<string, string> = {};
+            for (const p of provLogs) {
+              if (p.trader_id && p.order_id && !traderToOrder[p.trader_id]) {
+                traderToOrder[p.trader_id] = p.order_id;
+              }
+            }
+
+            if (orderIds.length > 0) {
+              const { data: orders } = await supabase
+                .from('orders')
+                .select('id, user_id')
+                .in('id', orderIds);
+
+              const orderToUser: Record<string, string> = {};
+              for (const o of (orders || [])) {
+                if (o.id && o.user_id) orderToUser[o.id] = o.user_id;
+              }
+
+              const userIds = Array.from(new Set(Object.values(orderToUser)));
+              if (userIds.length > 0) {
+                const { data: users } = await supabase
+                  .from('users')
+                  .select('id, email')
+                  .in('id', userIds);
+
+                const userEmailMap: Record<string, string> = {};
+                for (const u of (users || [])) userEmailMap[u.id] = u.email;
+
+                for (const traderId of traderIds) {
+                  const orderId = traderToOrder[traderId];
+                  const userId = orderId ? orderToUser[orderId] : undefined;
+                  const email = userId ? userEmailMap[userId] : undefined;
+                  if (email) traderEmailMap[traderId] = email;
+                }
+              }
+            }
+          }
         }
 
-        const rows = (data || []).map((c) => ({
-          id: c.id,
-          accountNumber: c.account_number,
-          email: emailMap[c.user_id] || '—',
-          userId: c.user_id,
-          challengeType: c.challenge_type,
-          phase: c.phase,
-          initialBalance: c.initial_balance,
-          currentBalance: c.current_balance,
-          profitPct: c.profit_pct,
-          tradingDays: c.trading_days_completed,
-          minTradingDays: c.min_trading_days,
-          startedAt: c.started_at,
-          expiresAt: c.expires_at,
-        }));
+        const rows = (data || []).map((c) => {
+          const profitPct = c.initial_balance && c.initial_balance > 0
+            ? ((c.current_balance - c.initial_balance) / c.initial_balance) * 100
+            : 0;
+          return {
+            id: c.id,
+            traderId: c.trader_id,
+            email: traderEmailMap[c.trader_id] || '—',
+            type: c.type || '—',
+            plan: c.plan || '—',
+            initialBalance: c.initial_balance,
+            currentBalance: c.current_balance,
+            profitPct: parseFloat(profitPct.toFixed(2)),
+            minTradingDays: c.min_trading_days,
+            startedAt: c.started_at,
+            expiresAt: c.expires_at,
+          };
+        });
 
         return NextResponse.json({ type, count: rows.length, rows });
       }
 
+      // ─── Funded Accounts ─────────────────────────────────────────────────────
       case 'funded_accounts': {
-        // funded_accounts may not exist; fall back to challenge_accounts with status=passed
-        let rows: any[] = [];
-        let useFallback = false;
-
-        const { data: faData, error: faError } = await supabase
-          .from('funded_accounts')
-          .select('id, user_id, account_number, account_size, current_equity, profit_loss, status, funded_at, payout_eligible')
-          .eq('status', 'active')
-          .order('funded_at', { ascending: false })
+        // funded_accounts table does not exist — use challenge_accounts status=passed
+        const { data, error } = await supabase
+          .from('challenge_accounts')
+          .select('id, trader_id, type, plan, initial_balance, current_balance, peak_balance, passed_at, created_at')
+          .eq('status', 'passed')
+          .order('passed_at', { ascending: false })
           .limit(100);
 
-        if (faError || !faData) {
-          useFallback = true;
-        } else {
-          rows = faData;
+        if (error) throw error;
+
+        const traderIds = Array.from(new Set((data || []).map((c) => c.trader_id).filter(Boolean)));
+
+        // Resolve emails via provisioning_logs → orders → users
+        let traderEmailMap: Record<string, string> = {};
+        if (traderIds.length > 0) {
+          const { data: provLogs } = await supabase
+            .from('provisioning_logs')
+            .select('trader_id, order_id')
+            .in('trader_id', traderIds)
+            .not('order_id', 'is', null);
+
+          if (provLogs && provLogs.length > 0) {
+            const traderToOrder: Record<string, string> = {};
+            for (const p of provLogs) {
+              if (p.trader_id && p.order_id && !traderToOrder[p.trader_id]) {
+                traderToOrder[p.trader_id] = p.order_id;
+              }
+            }
+            const orderIds = Array.from(new Set(Object.values(traderToOrder)));
+
+            if (orderIds.length > 0) {
+              const { data: orders } = await supabase
+                .from('orders')
+                .select('id, user_id')
+                .in('id', orderIds);
+
+              const orderToUser: Record<string, string> = {};
+              for (const o of (orders || [])) {
+                if (o.id && o.user_id) orderToUser[o.id] = o.user_id;
+              }
+
+              const userIds = Array.from(new Set(Object.values(orderToUser)));
+              if (userIds.length > 0) {
+                const { data: users } = await supabase
+                  .from('users')
+                  .select('id, email')
+                  .in('id', userIds);
+
+                const userEmailMap: Record<string, string> = {};
+                for (const u of (users || [])) userEmailMap[u.id] = u.email;
+
+                for (const traderId of traderIds) {
+                  const orderId = traderToOrder[traderId];
+                  const userId = orderId ? orderToUser[orderId] : undefined;
+                  const email = userId ? userEmailMap[userId] : undefined;
+                  if (email) traderEmailMap[traderId] = email;
+                }
+              }
+            }
+          }
         }
 
-        if (useFallback) {
-          const { data: caData } = await supabase
-            .from('challenge_accounts')
-            .select('id, user_id, account_number, challenge_type, initial_balance, current_balance, profit_pct, completed_at')
-            .eq('status', 'passed')
-            .order('completed_at', { ascending: false })
-            .limit(100);
-
-          rows = (caData || []).map((c) => ({
+        const rows = (data || []).map((c) => {
+          const profitLoss = (c.current_balance ?? 0) - (c.initial_balance ?? 0);
+          return {
             id: c.id,
-            userId: c.user_id,
-            accountNumber: c.account_number,
-            accountSize: c.initial_balance,
-            currentEquity: c.current_balance,
-            profitLoss: c.current_balance - c.initial_balance,
-            status: 'passed',
-            fundedAt: c.completed_at,
-            payoutEligible: null,
-            source: 'challenge_passed',
-          }));
-        } else {
-          rows = rows.map((f: any) => ({
-            id: f.id,
-            userId: f.user_id,
-            accountNumber: f.account_number,
-            accountSize: f.account_size,
-            currentEquity: f.current_equity,
-            profitLoss: f.profit_loss,
-            status: f.status,
-            fundedAt: f.funded_at,
-            payoutEligible: f.payout_eligible,
-            source: 'funded_accounts',
-          }));
-        }
+            traderId: c.trader_id,
+            email: traderEmailMap[c.trader_id] || '—',
+            type: c.type || '—',
+            plan: c.plan || '—',
+            initialBalance: c.initial_balance,
+            currentBalance: c.current_balance,
+            peakBalance: c.peak_balance,
+            profitLoss: parseFloat(profitLoss.toFixed(2)),
+            fundedAt: c.passed_at || c.created_at,
+          };
+        });
 
-        // Attach user emails
-        const userIds = Array.from(new Set(rows.map((r) => r.userId || r.user_id)));
-        let emailMap: Record<string, string> = {};
-        if (userIds.length > 0) {
-          const { data: users } = await supabase
-            .from('users')
-            .select('id, email, first_name, last_name')
-            .in('id', userIds);
-          emailMap = Object.fromEntries(
-            (users || []).map((u) => [u.id, u.email])
-          );
-        }
-
-        const finalRows = rows.map((r) => ({
-          ...r,
-          email: emailMap[r.userId || r.user_id] || '—',
-        }));
-
-        return NextResponse.json({ type, count: finalRows.length, rows: finalRows });
+        return NextResponse.json({ type, count: rows.length, rows });
       }
 
+      // ─── Staff Online ─────────────────────────────────────────────────────────
       case 'staff_online': {
         const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
 
@@ -173,17 +244,18 @@ export async function GET(req: NextRequest) {
 
         if (error) throw error;
 
-        // Get staff member details
-        const staffIds = Array.from(new Set((sessions || []).map((s) => s.staff_id)));
+        const staffIds = Array.from(new Set((sessions || []).map((s) => s.staff_id).filter(Boolean)));
         let staffMap: Record<string, { email: string; name: string; status: string }> = {};
+
         if (staffIds.length > 0) {
           const { data: staffMembers } = await supabase
             .from('staff_members')
             .select('id, email, name, status')
             .in('id', staffIds);
-          staffMap = Object.fromEntries(
-            (staffMembers || []).map((s) => [s.id, { email: s.email, name: s.name, status: s.status }])
-          );
+
+          for (const s of (staffMembers || [])) {
+            staffMap[s.id] = { email: s.email, name: s.name, status: s.status };
+          }
         }
 
         const rows = (sessions || []).map((s) => ({
@@ -194,7 +266,7 @@ export async function GET(req: NextRequest) {
           staffStatus: staffMap[s.staff_id]?.status || '—',
           lastActivity: s.last_activity,
           sessionStarted: s.created_at,
-          ipAddress: s.ip_address,
+          ipAddress: s.ip_address || '—',
           browser: s.browser || '—',
           os: s.os || '—',
         }));
@@ -205,8 +277,8 @@ export async function GET(req: NextRequest) {
       default:
         return NextResponse.json({ error: 'Unknown type' }, { status: 400 });
     }
-  } catch (err) {
-    console.error('Drill-down error:', err);
-    return NextResponse.json({ error: 'Failed to fetch drill-down data', rows: [] }, { status: 500 });
+  } catch (err: any) {
+    console.error(`Drill-down error [${type}]:`, err?.message || err);
+    return NextResponse.json({ error: 'Failed to fetch drill-down data', detail: err?.message, rows: [] }, { status: 500 });
   }
 }
