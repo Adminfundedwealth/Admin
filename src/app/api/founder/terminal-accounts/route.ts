@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { requireFounderInHandler } from '@/lib/security/require-auth';
 
 const TERMINAL_API = process.env.TERMINAL_API_URL || 'https://terminal.fundedwealth.com';
