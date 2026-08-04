@@ -14,7 +14,7 @@
 export type StatusVariant =
   | 'active' | 'healthy' | 'approved' | 'completed' | 'online'          // green
   | 'pending' | 'under-review' | 'in-progress' | 'idle'                 // blue
-  | 'warning' | 'degraded' | 'at-risk'                                  // amber
+  | 'warning' | 'degraded' | 'at-risk' | 'locked'                      // amber
   | 'critical' | 'failed' | 'breached' | 'rejected' | 'down' | 'sla-breached' // red
   | 'paused' | 'expired' | 'archived' | 'offline' | 'cancelled';        // gray
 
@@ -34,10 +34,11 @@ export const statusColorMap: Record<StatusVariant, StatusColorGroup> = {
   'under-review': 'blue',
   'in-progress': 'blue',
   idle: 'blue',
-  // Amber — warning / degraded / at-risk
+  // Amber — warning / degraded / at-risk / locked
   warning: 'amber',
   degraded: 'amber',
   'at-risk': 'amber',
+  locked: 'amber',
   // Red — critical / failed / breached
   critical: 'red',
   failed: 'red',

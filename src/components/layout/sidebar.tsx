@@ -11,7 +11,7 @@ import {
   LayoutDashboard, Users, Trophy, TrendingUp, Wallet, BarChart3,
   ShieldCheck, AlertTriangle, FileText, Activity, ListOrdered,
   Link as LinkIcon, Megaphone, Headphones, Award, Monitor, UserCog, Settings,
-  ShoppingCart, CreditCard, Trash2,
+  ShoppingCart, CreditCard, Trash2, SlidersHorizontal,
   Star, Clock, ChevronsLeft, ChevronsRight,
 } from 'lucide-react';
 
@@ -19,7 +19,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   LayoutDashboard, Users, Trophy, TrendingUp, Wallet, BarChart3,
   ShieldCheck, AlertTriangle, FileText, Activity, ListOrdered,
   Link: LinkIcon, Megaphone, Headphones, Award, Monitor, UserCog, Settings,
-  ShoppingCart, CreditCard, Trash2,
+  ShoppingCart, CreditCard, Trash2, SlidersHorizontal,
 };
 
 interface SidebarProps {
