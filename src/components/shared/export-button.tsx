@@ -6,7 +6,8 @@ import { Download, Loader2 } from 'lucide-react';
 
 interface ExportButtonProps {
   sourceCenter: string;
-  filters?: Record<string, string | number | boolean | null | undefined>;
+  // Accept any object shape — each page defines its own typed Filters interface
+  filters?: object;
   totalCount?: number;
   className?: string;
 }
