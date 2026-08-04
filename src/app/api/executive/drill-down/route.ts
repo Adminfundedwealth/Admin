@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
         if (error) throw error;
 
         // Fetch user emails for the challenge accounts
-        const userIds = [...new Set((data || []).map((c) => c.user_id))];
+        const userIds = Array.from(new Set((data || []).map((c) => c.user_id)));
         let emailMap: Record<string, string> = {};
         if (userIds.length > 0) {
           const { data: users } = await supabase
@@ -141,7 +141,7 @@ export async function GET(req: NextRequest) {
         }
 
         // Attach user emails
-        const userIds = [...new Set(rows.map((r) => r.userId || r.user_id))];
+        const userIds = Array.from(new Set(rows.map((r) => r.userId || r.user_id)));
         let emailMap: Record<string, string> = {};
         if (userIds.length > 0) {
           const { data: users } = await supabase
@@ -174,7 +174,7 @@ export async function GET(req: NextRequest) {
         if (error) throw error;
 
         // Get staff member details
-        const staffIds = [...new Set((sessions || []).map((s) => s.staff_id))];
+        const staffIds = Array.from(new Set((sessions || []).map((s) => s.staff_id)));
         let staffMap: Record<string, { email: string; name: string; status: string }> = {};
         if (staffIds.length > 0) {
           const { data: staffMembers } = await supabase
