@@ -19,10 +19,19 @@ type Params = { params: Promise<{ id: string; action: string }> };
  * POST /api/founder/terminal-accounts/[id]/close-positions → POST /api/admin/accounts/:id/close-positions
  */
 async function buildTerminalHeaders(): Promise<Record<string, string>> {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get('fw_session')?.value;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (sessionCookie) headers['Cookie'] = `fw_session=${sessionCookie}`;
+
+  // Option B: API key auth (works across subdomains)
+  const adminApiKey = process.env.TERMINAL_ADMIN_API_KEY;
+  if (adminApiKey) {
+    headers['x-admin-api-key'] = adminApiKey;
+  } else {
+    // Option A fallback: forward fw_session cookie
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get('fw_session')?.value;
+    if (sessionCookie) headers['Cookie'] = `fw_session=${sessionCookie}`;
+  }
+
   return headers;
 }
 

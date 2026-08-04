@@ -2,7 +2,6 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireFounderInHandler } from '@/lib/security/require-auth';
-import { cookies } from 'next/headers';
 
 const TERMINAL_API = process.env.TERMINAL_API_URL || 'https://terminal.fundedwealth.com';
 
@@ -20,14 +19,19 @@ export async function GET(request: NextRequest) {
   const url = `${TERMINAL_API}/api/admin/accounts${qs ? `?${qs}` : ''}`;
 
   try {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('fw_session')?.value;
-
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    if (sessionCookie) {
-      headers['Cookie'] = `fw_session=${sessionCookie}`;
+
+    // Option B: API key auth (works across subdomains)
+    const adminApiKey = process.env.TERMINAL_ADMIN_API_KEY;
+    if (adminApiKey) {
+      headers['x-admin-api-key'] = adminApiKey;
+    } else {
+      // Option A fallback: forward fw_session cookie
+      const cookieStore = await cookies();
+      const sessionCookie = cookieStore.get('fw_session')?.value;
+      if (sessionCookie) headers['Cookie'] = `fw_session=${sessionCookie}`;
     }
 
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
