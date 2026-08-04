@@ -196,10 +196,9 @@ function ActiveUsersTable({ rows }: { rows: any[] }) {
         <tr>
           <Th>Email</Th>
           <Th>Name</Th>
-          <Th>Country</Th>
+          <Th>Location</Th>
           <Th>KYC</Th>
-          <Th>Last Active</Th>
-          <Th>Last Login</Th>
+          <Th>Status</Th>
           <Th>Joined</Th>
           <Th></Th>
         </tr>
@@ -209,12 +208,15 @@ function ActiveUsersTable({ rows }: { rows: any[] }) {
           <tr key={r.id} className={`border-b hover:bg-muted/20 transition-colors ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
             <Td className="font-mono text-[11px]">{r.email}</Td>
             <Td>{r.name}</Td>
-            <Td>{r.country}</Td>
+            <Td className="text-muted-foreground">{r.location}</Td>
             <Td>
               <KYCBadge status={r.kycStatus} />
             </Td>
-            <Td className="text-muted-foreground">{relativeTime(r.lastActive)}</Td>
-            <Td className="text-muted-foreground">{relativeTime(r.lastLogin)}</Td>
+            <Td>
+              <span className={r.isActive ? 'text-emerald-600 font-medium' : 'text-muted-foreground'}>
+                {r.isActive ? 'Active' : 'Inactive'}
+              </span>
+            </Td>
             <Td className="text-muted-foreground">{shortDate(r.joinedAt)}</Td>
             <Td>
               <a
@@ -240,13 +242,13 @@ function ActiveChallengesTable({ rows }: { rows: any[] }) {
     <table className="w-full text-[12px]">
       <thead className="sticky top-0 bg-muted/60 backdrop-blur-sm">
         <tr>
-          <Th>Account #</Th>
           <Th>Email</Th>
+          <Th>Trader ID</Th>
           <Th>Type</Th>
-          <Th>Phase</Th>
+          <Th>Plan</Th>
           <Th>Balance</Th>
           <Th>P&L%</Th>
-          <Th>Days</Th>
+          <Th>Started</Th>
           <Th>Expires</Th>
           <Th></Th>
         </tr>
@@ -254,12 +256,12 @@ function ActiveChallengesTable({ rows }: { rows: any[] }) {
       <tbody>
         {rows.map((r, i) => (
           <tr key={r.id} className={`border-b hover:bg-muted/20 transition-colors ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
-            <Td className="font-mono text-[11px] font-medium">{r.accountNumber}</Td>
             <Td className="font-mono text-[11px]">{r.email}</Td>
-            <Td>{r.challengeType || '—'}</Td>
+            <Td className="font-mono text-[11px] text-muted-foreground">{r.traderId?.slice(0, 12)}…</Td>
+            <Td className="text-muted-foreground">{r.type}</Td>
             <Td>
               <Badge variant="outline" className="text-[10px] h-4 px-1">
-                Phase {r.phase}
+                {r.plan || '—'}
               </Badge>
             </Td>
             <Td>{formatCurrency(r.currentBalance)}</Td>
@@ -268,9 +270,7 @@ function ActiveChallengesTable({ rows }: { rows: any[] }) {
                 {r.profitPct >= 0 ? '+' : ''}{r.profitPct?.toFixed(2)}%
               </span>
             </Td>
-            <Td>
-              {r.tradingDays}/{r.minTradingDays}
-            </Td>
+            <Td className="text-muted-foreground">{shortDate(r.startedAt)}</Td>
             <Td className="text-muted-foreground">{r.expiresAt ? shortDate(r.expiresAt) : '—'}</Td>
             <Td>
               <a
@@ -296,12 +296,13 @@ function FundedAccountsTable({ rows }: { rows: any[] }) {
     <table className="w-full text-[12px]">
       <thead className="sticky top-0 bg-muted/60 backdrop-blur-sm">
         <tr>
-          <Th>Account #</Th>
           <Th>Email</Th>
-          <Th>Account Size</Th>
-          <Th>Current Equity</Th>
+          <Th>Trader ID</Th>
+          <Th>Type</Th>
+          <Th>Plan</Th>
+          <Th>Start Balance</Th>
+          <Th>Current Balance</Th>
           <Th>P&L</Th>
-          <Th>Payout Eligible</Th>
           <Th>Funded At</Th>
           <Th></Th>
         </tr>
@@ -309,28 +310,25 @@ function FundedAccountsTable({ rows }: { rows: any[] }) {
       <tbody>
         {rows.map((r, i) => (
           <tr key={r.id} className={`border-b hover:bg-muted/20 transition-colors ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
-            <Td className="font-mono text-[11px] font-medium">{r.accountNumber}</Td>
             <Td className="font-mono text-[11px]">{r.email}</Td>
-            <Td>{formatCurrency(r.accountSize)}</Td>
-            <Td>{formatCurrency(r.currentEquity)}</Td>
+            <Td className="font-mono text-[11px] text-muted-foreground">{r.traderId?.slice(0, 12)}…</Td>
+            <Td className="text-muted-foreground">{r.type}</Td>
+            <Td>
+              <Badge variant="outline" className="text-[10px] h-4 px-1">
+                {r.plan || '—'}
+              </Badge>
+            </Td>
+            <Td>{formatCurrency(r.initialBalance)}</Td>
+            <Td>{formatCurrency(r.currentBalance)}</Td>
             <Td>
               <span className={r.profitLoss >= 0 ? 'text-emerald-600' : 'text-red-500'}>
                 {r.profitLoss >= 0 ? '+' : ''}{formatCurrency(Math.abs(r.profitLoss))}
               </span>
             </Td>
-            <Td>
-              {r.payoutEligible === null ? (
-                <span className="text-muted-foreground">—</span>
-              ) : r.payoutEligible ? (
-                <Badge className="text-[10px] h-4 px-1 bg-emerald-500/20 text-emerald-700 border-emerald-500/30">Yes</Badge>
-              ) : (
-                <Badge variant="secondary" className="text-[10px] h-4 px-1">No</Badge>
-              )}
-            </Td>
             <Td className="text-muted-foreground">{r.fundedAt ? shortDate(r.fundedAt) : '—'}</Td>
             <Td>
               <a
-                href={`/funded-traders/${r.id}`}
+                href={`/funded/${r.id}`}
                 className="text-primary hover:underline flex items-center gap-0.5"
                 title="View funded account"
               >
