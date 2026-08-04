@@ -43,6 +43,12 @@ export const sidebarNavigation: NavigationSection[] = [
         permission: null,
       },
       {
+        label: 'Account Control',
+        icon: 'SlidersHorizontal',
+        href: '/founder/account-control',
+        permission: null,
+      },
+      {
         label: 'Delete / Archive Accounts',
         icon: 'Trash2',
         href: '/founder/delete-accounts',
