@@ -391,7 +391,7 @@ function StaffOnlineTable({ rows }: { rows: any[] }) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function Th({ children }: { children: React.ReactNode }) {
+function Th({ children }: { children?: React.ReactNode }) {
   return (
     <th className="px-4 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
       {children}
@@ -399,7 +399,7 @@ function Th({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Td({ children, className }: { children: React.ReactNode; className?: string }) {
+function Td({ children, className }: { children?: React.ReactNode; className?: string }) {
   return (
     <td className={`px-4 py-2 whitespace-nowrap ${className || ''}`}>
       {children}
