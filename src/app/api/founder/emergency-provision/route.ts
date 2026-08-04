@@ -340,7 +340,7 @@ export async function POST(request: NextRequest) {
         trader_id: traderId,
         challenge_id: challengeAccount.id,
         account_code: accountCode,
-        broker_provider: 'internal',
+        broker_provider: 'paper',
         balance: account_size,
         available_margin: account_size,
         used_margin: 0,
