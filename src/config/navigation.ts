@@ -54,6 +54,12 @@ export const sidebarNavigation: NavigationSection[] = [
         href: '/founder/delete-accounts',
         permission: null,
       },
+      {
+        label: 'Discount Code Manager',
+        icon: 'Tag',
+        href: '/founder/discount-config',
+        permission: null,
+      },
     ],
   },
   {
