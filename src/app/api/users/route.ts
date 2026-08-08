@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requirePermissionInHandler } from '@/lib/security/require-auth';
-import { sanitizeSearchInput } from '@/lib/security/sanitize';
+import { sanitizeSearchInput, isValidUUID } from '@/lib/security/sanitize';
 
 /**
  * GET /api/users
@@ -45,9 +45,18 @@ export async function GET(request: NextRequest) {
 
     // Search (partial match, min 3 chars) — sanitized input
     if (search && search.length >= 3) {
-      query = query.or(
-        `email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,phone.ilike.%${search}%,id.eq.${search}`
-      );
+      // Build or-filter parts — only include id.eq when input is a valid UUID
+      // to avoid a PostgREST query error that would crash the whole request.
+      const orParts = [
+        `email.ilike.%${search}%`,
+        `first_name.ilike.%${search}%`,
+        `last_name.ilike.%${search}%`,
+        `phone.ilike.%${search}%`,
+      ];
+      if (isValidUUID(search)) {
+        orParts.push(`id.eq.${search}`);
+      }
+      query = query.or(orParts.join(','));
     }
 
     // Filters — live columns only
