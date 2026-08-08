@@ -12,7 +12,7 @@
 export function sanitizeSearchInput(input: string): string {
   // Remove PostgREST special characters that could inject filter conditions
   return input
-    .replace(/[,.()\[\]{}\\;'"]/g, '')  // Remove filter operators and SQL-dangerous chars
+    .replace(/[,()\[\]{}\\;'"]/g, '')   // Remove filter operators and SQL-dangerous chars (keep . for email)
     .replace(/\s+/g, ' ')                // Normalize whitespace
     .trim()
     .slice(0, 200);                       // Limit length
