@@ -35,49 +35,76 @@ export async function GET(request: NextRequest) {
     const { data, error, count } = await query;
 
     if (error) {
+      console.error('Payouts list query error:', error.message);
       return NextResponse.json({ error: { code: 'QUERY_ERROR', message: error.message } }, { status: 500 });
     }
 
-    // Calculate analytics
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay())).toISOString();
-    const startOfDay = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+    // Calculate analytics — wrapped so a missing column never kills the main response
+    let analytics = {
+      totalPaidDaily: 0,
+      totalPaidWeekly: 0,
+      totalPaidMonthly: 0,
+      totalPending: 0,
+      avgProcessingTimeHours: 0,
+      rejectionRate: 0,
+    };
 
-    const { data: allPayouts } = await supabase
-      .from('payout_reviews')
-      .select('status, calculated_payout, created_at, completed_at, rejection_reason');
+    try {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-    const completed = (allPayouts || []).filter(p => p.status === 'payment_completed');
-    const pending = (allPayouts || []).filter(p => ['request_received', 'under_review', 'approved', 'payment_processing'].includes(p.status));
-    const rejected = (allPayouts || []).filter(p => p.rejection_reason);
+      // Only fetch columns that definitely exist in payout_reviews
+      const { data: allPayouts } = await supabase
+        .from('payout_reviews')
+        .select('status, calculated_payout, created_at, completed_at');
 
-    const totalPaidMonthly = completed
-      .filter(p => p.completed_at && p.completed_at >= startOfMonth)
-      .reduce((sum, p) => sum + (p.calculated_payout ?? 0), 0);
+      const rows = allPayouts || [];
+      const completed = rows.filter(p => p.status === 'payment_completed');
+      const pending = rows.filter(p =>
+        ['request_received', 'under_review', 'approved', 'payment_processing'].includes(p.status),
+      );
 
-    const totalPending = pending.reduce((sum, p) => sum + (p.calculated_payout ?? 0), 0);
+      // Count rejected by fetching rejection_reason separately — safely
+      const { data: rejectedRows } = await supabase
+        .from('payout_reviews')
+        .select('id')
+        .not('rejection_reason', 'is', null);
+      const rejectedCount = rejectedRows?.length ?? 0;
 
-    const processingTimes = completed
-      .filter(p => p.completed_at && p.created_at)
-      .map(p => (new Date(p.completed_at!).getTime() - new Date(p.created_at).getTime()) / 3600000);
-    const avgProcessingTimeHours = processingTimes.length > 0
-      ? processingTimes.reduce((a, b) => a + b, 0) / processingTimes.length : 0;
+      const totalPaidMonthly = completed
+        .filter(p => p.completed_at && p.completed_at >= startOfMonth)
+        .reduce((sum, p) => sum + (p.calculated_payout ?? 0), 0);
 
-    const rejectionRate = (allPayouts || []).length > 0
-      ? (rejected.length / (allPayouts || []).length) * 100 : 0;
+      const totalPending = pending.reduce((sum, p) => sum + (p.calculated_payout ?? 0), 0);
 
-    return NextResponse.json({
-      data: data || [],
-      meta: { page, pageSize, totalCount: count ?? 0, totalPages: Math.ceil((count ?? 0) / pageSize) },
-      analytics: {
+      const processingTimes = completed
+        .filter(p => p.completed_at && p.created_at)
+        .map(p => (new Date(p.completed_at!).getTime() - new Date(p.created_at).getTime()) / 3600000);
+      const avgProcessingTimeHours =
+        processingTimes.length > 0
+          ? processingTimes.reduce((a, b) => a + b, 0) / processingTimes.length
+          : 0;
+
+      const rejectionRate =
+        rows.length > 0 ? (rejectedCount / rows.length) * 100 : 0;
+
+      analytics = {
         totalPaidDaily: 0,
         totalPaidWeekly: 0,
         totalPaidMonthly,
         totalPending,
         avgProcessingTimeHours,
         rejectionRate,
-      },
+      };
+    } catch (analyticsErr) {
+      // Analytics failure is non-fatal — return empty analytics so the list still works
+      console.warn('Payouts analytics calculation failed (non-fatal):', analyticsErr);
+    }
+
+    return NextResponse.json({
+      data: data || [],
+      meta: { page, pageSize, totalCount: count ?? 0, totalPages: Math.ceil((count ?? 0) / pageSize) },
+      analytics,
     });
   } catch (err) {
     console.error('Payouts list error:', err);

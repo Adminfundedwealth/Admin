@@ -115,8 +115,6 @@ export default function PayoutsPage() {
     { id: 'actions', header: '', cell: ({ row }) => <div className="group"><RowActions actions={getRowActions(row.original)} /></div> },
   ];
 
-  if (error) return <ErrorState message={error} onRetry={fetchPayouts} />;
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -142,7 +140,11 @@ export default function PayoutsPage() {
         <DateRangeFilter label="Request Date" from={filters.dateFrom} to={filters.dateTo} onFromChange={(v) => setFilters(f => ({ ...f, dateFrom: v }))} onToChange={(v) => setFilters(f => ({ ...f, dateTo: v }))} />
       </FilterBar>
 
-      {loading ? <LoadingState rows={8} /> : payouts.length === 0 ? (
+      {loading ? (
+        <LoadingState rows={8} />
+      ) : error ? (
+        <ErrorState message={error} onRetry={fetchPayouts} />
+      ) : payouts.length === 0 ? (
         <EmptyState message="No payout requests match the current filters." />
       ) : (
         <DataTable columns={columns} data={payouts} pageSize={20} totalCount={totalCount} enableRowSelection onRowSelectionChange={setRowSelection} />
