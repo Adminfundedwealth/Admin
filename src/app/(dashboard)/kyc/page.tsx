@@ -13,7 +13,7 @@ import { SlidePanel } from '@/components/shared/slide-panel';
 import { Eye, CheckCircle, RotateCcw } from 'lucide-react';
 import type { ColumnDef, RowSelectionState } from '@tanstack/react-table';
 
-interface KYCRow { id: string; user_id: string; status: string; submission_count: number; reviewer_id: string | null; overdue: boolean; created_at: string; }
+interface KYCRow { id: string; user_id: string; status: string; submission_count?: number; reviewer_id?: string | null; overdue?: boolean; created_at: string; }
 const statusColors: Record<string, string> = { pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400', in_review: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400', approved: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400', rejected: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400', resubmit_requested: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400' };
 
 export default function KYCPage() {
@@ -66,8 +66,8 @@ export default function KYCPage() {
     { accessorKey: 'id', header: 'ID', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? v.slice(0, 8) + '…' : '—'; } },
     { accessorKey: 'user_id', header: 'User', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? v.slice(0, 8) + '…' : '—'; } },
     { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => { const s = (getValue() as string | null) ?? ''; return <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${statusColors[s] || ''}`}>{s ? s.replace(/_/g, ' ') : '—'}</span>; } },
-    { accessorKey: 'submission_count', header: 'Attempts' },
-    { accessorKey: 'overdue', header: 'Overdue', cell: ({ getValue }) => getValue() ? <span className="text-red-600 font-medium">Yes</span> : 'No' },
+    { accessorKey: 'submission_count', header: 'Attempts', cell: ({ getValue }) => getValue() ?? '—' },
+    { accessorKey: 'overdue', header: 'Overdue', cell: ({ getValue }) => { const v = getValue(); return v === true ? <span className="text-red-600 font-medium">Yes</span> : v === false ? 'No' : '—'; } },
     { accessorKey: 'created_at', header: 'Submitted', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? new Date(v).toLocaleDateString() : '—'; } },
     { id: 'actions', header: '', cell: ({ row }) => <div className="group"><RowActions actions={getRowActions(row.original)} /></div> },
   ];
@@ -90,8 +90,8 @@ export default function KYCPage() {
           <div className="space-y-3 text-sm">
             <div className="flex justify-between"><span className="text-muted-foreground">User</span><span className="font-mono text-xs">{selectedKYC.user_id ? selectedKYC.user_id.slice(0, 12) + '…' : '—'}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="capitalize">{selectedKYC.status ? selectedKYC.status.replace(/_/g, ' ') : '—'}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Attempts</span><span>{selectedKYC.submission_count}/3</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Overdue</span><span className={selectedKYC.overdue ? 'text-red-600' : ''}>{selectedKYC.overdue ? 'Yes' : 'No'}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Attempts</span><span>{selectedKYC.submission_count != null ? `${selectedKYC.submission_count}/3` : '—'}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Overdue</span><span className={selectedKYC.overdue ? 'text-red-600' : ''}>{selectedKYC.overdue == null ? '—' : selectedKYC.overdue ? 'Yes' : 'No'}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Submitted</span><span>{selectedKYC.created_at ? new Date(selectedKYC.created_at).toLocaleString() : '—'}</span></div>
           </div>
         )}
