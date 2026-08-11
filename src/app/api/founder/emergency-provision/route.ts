@@ -69,6 +69,7 @@ const EmergencyProvisionSchema = z.object({
   phone: z.string().optional(),
   challenge_type: z.string().min(1, 'Challenge type is required'),
   account_size: z.number().positive('Account size must be positive'),
+  force_override: z.boolean().optional(),
 });
 
 /**
@@ -106,7 +107,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    const { name, email, phone, challenge_type, account_size } = parsed.data;
+    const { name, email, phone, challenge_type, account_size, force_override } = parsed.data;
 
     // ── 3. Validate against catalog ──────────────────────────────────────────
     const catalog = await fetchCatalog();
@@ -220,40 +221,42 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── 5. Duplicate check ───────────────────────────────────────────────────
-    const { data: existingBeforeProvision } = await supabase
-      .from('trading_accounts')
-      .select('id, account_code, status, balance, created_at')
-      .eq('trader_id', (await supabase.from('terminal_traders').select('id').eq('external_id', userId).single()).data?.id ?? 'none')
-      .not('status', 'in', '("closed","rejected")')
-      .order('created_at', { ascending: false })
-      .limit(1);
+    // ── 5. Duplicate check (skipped when Founder Override is active) ─────────
+    if (!force_override) {
+      const { data: existingBeforeProvision } = await supabase
+        .from('trading_accounts')
+        .select('id, account_code, status, balance, created_at')
+        .eq('trader_id', (await supabase.from('terminal_traders').select('id').eq('external_id', userId).single()).data?.id ?? 'none')
+        .not('status', 'in', '("closed","rejected")')
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-    if (existingBeforeProvision && existingBeforeProvision.length > 0) {
-      const existing = existingBeforeProvision[0];
-      return NextResponse.json(
-        {
-          success: false,
-          existing_account: true,
-          data: {
-            user_id: userId,
-            user_email: email,
-            user_name: name,
-            trading_account_id: existing.id,
-            terminal_login: existing.account_code,
-            terminal_email: email.toLowerCase(),
-            terminal_url: process.env.TERMINAL_BASE_URL || 'https://terminal.fundedwealth.com',
-            account_size: existing.balance,
-            challenge_type,
-            status: existing.status,
+      if (existingBeforeProvision && existingBeforeProvision.length > 0) {
+        const existing = existingBeforeProvision[0];
+        return NextResponse.json(
+          {
+            success: false,
+            existing_account: true,
+            data: {
+              user_id: userId,
+              user_email: email,
+              user_name: name,
+              trading_account_id: existing.id,
+              terminal_login: existing.account_code,
+              terminal_email: email.toLowerCase(),
+              terminal_url: process.env.TERMINAL_BASE_URL || 'https://terminal.fundedwealth.com',
+              account_size: existing.balance,
+              challenge_type,
+              status: existing.status,
+            },
+            error: {
+              code: 'EXISTING_ACCOUNT',
+              message: `User already has an active account: ${existing.account_code}. Duplicate provision blocked.`,
+            },
           },
-          error: {
-            code: 'EXISTING_ACCOUNT',
-            message: `User already has an active account: ${existing.account_code}. Duplicate provision blocked.`,
-          },
-        },
-        { status: 409 },
-      );
+          { status: 409 },
+        );
+      }
     }
 
     // ── 6. Direct DB provisioning ────────────────────────────────────────────
@@ -487,6 +490,7 @@ export async function POST(request: NextRequest) {
           account_size,
           challenge_type,
           source: 'founder_emergency',
+          source_detail: force_override ? 'founder_override' : 'emergency_manual',
           verification,
         },
         ipAddress,
