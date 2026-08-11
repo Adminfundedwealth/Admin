@@ -263,13 +263,10 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
     const orderId = `emrg-${Date.now()}-${userId.slice(0, 8)}`;
 
-    const planTypeMap: Record<string, string> = {
-      flash:   'flash_funding',
-      instant: 'instant_funding',
-      '1step': 'evaluation_phase1',
-      '2step': 'evaluation_phase1',
-    };
-    const challengeAccountType = planTypeMap[challenge_type] ?? challenge_type;
+    // Use the catalog's authoritative rules.type — matches what the production
+    // pipeline writes and what the terminal expects (e.g. 'flash_funding',
+    // 'instant_funding', '1step_evaluation', '2step_evaluation_phase1').
+    const challengeAccountType = product.rules.type;
 
     // 6a. Upsert terminal_traders
     const { data: existingTrader } = await supabase
@@ -432,7 +429,7 @@ export async function POST(request: NextRequest) {
             accountId: tradingAccount.id,
             challengeId: challengeAccount.id,
             accountCode: terminalLogin,
-            plan: challenge_type,
+            plan: product.rules.type,  // canonical type string the terminal expects
             email: email.toLowerCase(),
             name: name.trim(),
           }),
