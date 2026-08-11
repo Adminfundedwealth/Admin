@@ -131,6 +131,7 @@ export default function EmergencyManualProvisionPage() {
   const [accountSize, setAccountSize] = useState<number>(0);
 
   const [submitting, setSubmitting] = useState(false);
+  const [founderOverrideSubmitting, setFounderOverrideSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<ProvisionResult | null>(null);
   const [existingAccount, setExistingAccount] = useState<ExistingAccountData | null>(null);
@@ -211,6 +212,45 @@ export default function EmergencyManualProvisionPage() {
       setError('Network error. Please try again.');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // Founder Override — same as normal provision but bypasses existing-email restriction
+  async function handleFounderOverride() {
+    setError('');
+    setResult(null);
+    setExistingAccount(null);
+
+    if (!name.trim()) { setError('Name is required'); return; }
+    if (!email.trim()) { setError('Email is required'); return; }
+    if (!selectedProduct) { setError('Challenge type is required'); return; }
+    if (!accountSize) { setError('Account size is required'); return; }
+
+    setFounderOverrideSubmitting(true);
+    try {
+      const res = await apiFetch('/api/founder/emergency-provision', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          phone: phone.trim() || undefined,
+          challenge_type: selectedProduct,
+          account_size: accountSize,
+          force_override: true,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        setError(json.error?.message || 'Founder Override failed');
+        return;
+      }
+      setResult(json.data);
+    } catch {
+      setError('Network error. Please try again.');
+    } finally {
+      setFounderOverrideSubmitting(false);
     }
   }
 
@@ -517,6 +557,15 @@ export default function EmergencyManualProvisionPage() {
               <Button onClick={resetForm} variant="outline" className="gap-2">
                 <RefreshCw className="h-4 w-4" /> Try Different Email
               </Button>
+              <Button
+                onClick={handleFounderOverride}
+                disabled={founderOverrideSubmitting}
+                variant="destructive"
+                className="gap-2"
+              >
+                <Shield className="h-4 w-4" />
+                {founderOverrideSubmitting ? 'Overriding...' : 'Founder Override'}
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -622,6 +671,18 @@ export default function EmergencyManualProvisionPage() {
                 className="w-full gap-2" variant="default">
                 <UserPlus className="h-4 w-4" />
                 {submitting ? 'Provisioning...' : `Provision ${currentProduct?.displayName || ''} Account`}
+              </Button>
+
+              {/* Founder Override — bypasses duplicate-email restriction, creates a NEW account */}
+              <Button
+                type="button"
+                onClick={handleFounderOverride}
+                disabled={founderOverrideSubmitting || !selectedProduct || !accountSize}
+                className="w-full gap-2"
+                variant="outline"
+              >
+                <Shield className="h-4 w-4 text-destructive" />
+                {founderOverrideSubmitting ? 'Overriding...' : 'Founder Override'}
               </Button>
             </form>
           </CardContent>
