@@ -13,6 +13,7 @@ import {
   Link as LinkIcon, Megaphone, Headphones, Award, Monitor, UserCog, Settings,
   ShoppingCart, CreditCard, Trash2, SlidersHorizontal, Tag,
   Star, Clock, ChevronsLeft, ChevronsRight,
+  Zap, Layers, History, Shield,
 } from 'lucide-react';
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -20,6 +21,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   ShieldCheck, AlertTriangle, FileText, Activity, ListOrdered,
   Link: LinkIcon, Megaphone, Headphones, Award, Monitor, UserCog, Settings,
   ShoppingCart, CreditCard, Trash2, SlidersHorizontal, Tag,
+  Zap, Layers, History, Shield,
 };
 
 interface SidebarProps {

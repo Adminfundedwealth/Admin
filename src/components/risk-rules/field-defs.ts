@@ -1,0 +1,127 @@
+/**
+ * Field definitions for each risk plan.
+ * Shared between all profile editor pages.
+ */
+import type { FieldDef } from './profile-editor';
+
+export const FLASH_FIELDS: FieldDef[] = [
+  { key: 'duration_hours',        label: 'Duration',            type: 'number',   unit: 'h',   description: '24h window from first position' },
+  { key: 'per_position_loss_pct', label: 'Per-Position Loss',   type: 'number',   unit: '%',   description: 'Max loss per single position' },
+  { key: 'max_drawdown_pct',      label: 'Max Drawdown',        type: 'number',   unit: '%' },
+  { key: 'max_open_positions',    label: 'Max Positions',       type: 'number' },
+  { key: 'leverage_max',          label: 'Max Leverage',        type: 'number',   unit: 'x' },
+  { key: 'profit_target_pct',     label: 'Profit Target',       type: 'number',   unit: '%',   description: '0 = no target' },
+  { key: 'profit_split_pct',      label: 'Profit Split',        type: 'number',   unit: '%' },
+  { key: 'payout_threshold_pct',  label: 'Payout Threshold',    type: 'number',   unit: '%' },
+  { key: 'consistency_rule_pct',  label: 'Consistency Rule',    type: 'number',   unit: '%' },
+  { key: 'trading_hours_start',   label: 'Trading Start',       type: 'time',                  description: 'IST HH:MM' },
+  { key: 'trading_hours_end',     label: 'Trading End',         type: 'time' },
+  { key: 'overnight_allowed',     label: 'Overnight Allowed',   type: 'boolean' },
+  { key: 'weekend_allowed',       label: 'Weekend Allowed',     type: 'boolean' },
+  { key: 'holiday_restriction',   label: 'Block Holidays',      type: 'boolean' },
+  { key: 'allowed_segments',      label: 'Allowed Segments',    type: 'segments' },
+];
+
+export const INSTANT_FIELDS: FieldDef[] = [
+  { key: 'daily_loss_pct',                  label: 'Daily Loss Limit',      type: 'number', unit: '%' },
+  { key: 'max_drawdown_pct',                label: 'Max Drawdown',          type: 'number', unit: '%' },
+  { key: 'max_open_positions',              label: 'Max Positions',         type: 'number' },
+  { key: 'leverage_max',                    label: 'Max Leverage',          type: 'number', unit: 'x' },
+  { key: 'max_position_size_pct',           label: 'Max Position Size',     type: 'number', unit: '%' },
+  { key: 'profit_target_pct',              label: 'Profit Target',          type: 'number', unit: '%', description: '0 = no target' },
+  { key: 'profit_split_pct',               label: 'Profit Split',           type: 'number', unit: '%', description: 'Flat 80% from day 1' },
+  { key: 'payout_threshold_pct',           label: 'Payout Threshold',       type: 'number', unit: '%' },
+  { key: 'min_trading_days',               label: 'Min Trading Days',       type: 'number', unit: 'd' },
+  { key: 'consistency_rule_pct',           label: 'Consistency Rule',       type: 'number', unit: '%' },
+  { key: 'daily_profit_cap_pct',           label: 'Daily Profit Cap',       type: 'number', unit: '%' },
+  { key: 'daily_profit_cap_cooldown_hours',label: 'Cap Cooldown',           type: 'number', unit: 'h' },
+  { key: 'risk_per_idea_pct',              label: 'Risk per Idea',          type: 'number', unit: '%' },
+  { key: 'risk_per_idea_window_min',       label: 'Idea Window',            type: 'number', unit: 'min' },
+  { key: 'inactivity_close_days',          label: 'Inactivity Close',       type: 'number', unit: 'd', description: 'CONFIGURED — not yet enforced by cron' },
+  { key: 'trading_hours_start',            label: 'Trading Start',          type: 'time' },
+  { key: 'trading_hours_end',             label: 'Trading End',             type: 'time' },
+  { key: 'overnight_allowed',             label: 'Overnight Allowed',       type: 'boolean' },
+  { key: 'weekend_allowed',               label: 'Weekend Allowed',         type: 'boolean' },
+  { key: 'holiday_restriction',           label: 'Block Holidays',          type: 'boolean' },
+  { key: 'allowed_segments',              label: 'Allowed Segments',        type: 'segments' },
+];
+
+export const ONESTEP_FIELDS: FieldDef[] = [
+  // Evaluation
+  { key: 'e_profit_target_pct',      label: 'Profit Target',     type: 'number', unit: '%', phase: 'Evaluation' },
+  { key: 'e_daily_loss_pct',         label: 'Daily Loss Limit',  type: 'number', unit: '%', phase: 'Evaluation' },
+  { key: 'e_max_drawdown_pct',       label: 'Max Drawdown',      type: 'number', unit: '%', phase: 'Evaluation' },
+  { key: 'e_min_trading_days',       label: 'Min Trading Days',  type: 'number', unit: 'd', phase: 'Evaluation' },
+  { key: 'e_max_open_positions',     label: 'Max Positions',     type: 'number',             phase: 'Evaluation' },
+  { key: 'e_max_position_size_pct',  label: 'Max Position Size', type: 'number', unit: '%', phase: 'Evaluation' },
+  { key: 'e_max_risk_per_trade_pct', label: 'Risk per Trade',    type: 'number', unit: '%', phase: 'Evaluation' },
+  { key: 'e_daily_profit_cap_pct',   label: 'Daily Profit Cap',  type: 'number', unit: '%', phase: 'Evaluation' },
+  { key: 'e_leverage_max',           label: 'Max Leverage',      type: 'number', unit: 'x', phase: 'Evaluation' },
+  // Funded
+  { key: 'f_profit_target_pct',       label: 'Profit Target',    type: 'number', unit: '%', phase: 'Funded', description: '0 = no target' },
+  { key: 'f_daily_loss_pct',         label: 'Daily Loss Limit',  type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_max_drawdown_pct',       label: 'Max Drawdown',      type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_min_trading_days',       label: 'Min Trading Days',  type: 'number', unit: 'd', phase: 'Funded' },
+  { key: 'f_max_open_positions',     label: 'Max Positions',     type: 'number',             phase: 'Funded' },
+  { key: 'f_max_position_size_pct',  label: 'Max Position Size', type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_max_risk_per_trade_pct', label: 'Risk per Trade',    type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_daily_profit_cap_pct',   label: 'Daily Profit Cap',  type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_leverage_max',           label: 'Max Leverage',      type: 'number', unit: 'x', phase: 'Funded' },
+  { key: 'f_consistency_rule_pct',   label: 'Consistency Rule',  type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_profit_split_initial_pct', label: 'Split (initial)', type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_profit_split_scaled_pct',  label: 'Split (after 1st payout)', type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_payout_threshold_pct',   label: 'Payout Threshold',  type: 'number', unit: '%', phase: 'Funded' },
+  // Shared
+  { key: 'trading_hours_start',      label: 'Trading Start',     type: 'time',               phase: 'Shared' },
+  { key: 'trading_hours_end',        label: 'Trading End',       type: 'time',               phase: 'Shared' },
+  { key: 'overnight_allowed',        label: 'Overnight Allowed', type: 'boolean',            phase: 'Shared' },
+  { key: 'weekend_allowed',          label: 'Weekend Allowed',   type: 'boolean',            phase: 'Shared' },
+  { key: 'holiday_restriction',      label: 'Block Holidays',    type: 'boolean',            phase: 'Shared' },
+  { key: 'inactivity_close_days',    label: 'Inactivity Close',  type: 'number', unit: 'd', phase: 'Shared', description: 'CONFIGURED — not yet enforced by cron' },
+  { key: 'allowed_segments',         label: 'Allowed Segments',  type: 'segments',           phase: 'Shared' },
+];
+
+export const TWOSTEP_FIELDS: FieldDef[] = [
+  // Phase 1
+  { key: 'p1_profit_target_pct',      label: 'Profit Target',     type: 'number', unit: '%', phase: 'Phase 1' },
+  { key: 'p1_daily_loss_pct',         label: 'Daily Loss Limit',  type: 'number', unit: '%', phase: 'Phase 1' },
+  { key: 'p1_max_drawdown_pct',       label: 'Max Drawdown',      type: 'number', unit: '%', phase: 'Phase 1' },
+  { key: 'p1_min_trading_days',       label: 'Min Trading Days',  type: 'number', unit: 'd', phase: 'Phase 1' },
+  { key: 'p1_max_open_positions',     label: 'Max Positions',     type: 'number',             phase: 'Phase 1' },
+  { key: 'p1_max_position_size_pct',  label: 'Max Position Size', type: 'number', unit: '%', phase: 'Phase 1' },
+  { key: 'p1_max_risk_per_trade_pct', label: 'Risk per Trade',    type: 'number', unit: '%', phase: 'Phase 1' },
+  { key: 'p1_daily_profit_cap_pct',   label: 'Daily Profit Cap',  type: 'number', unit: '%', phase: 'Phase 1' },
+  { key: 'p1_leverage_max',           label: 'Max Leverage',      type: 'number', unit: 'x', phase: 'Phase 1' },
+  // Phase 2
+  { key: 'p2_profit_target_pct',      label: 'Profit Target',     type: 'number', unit: '%', phase: 'Phase 2' },
+  { key: 'p2_daily_loss_pct',         label: 'Daily Loss Limit',  type: 'number', unit: '%', phase: 'Phase 2' },
+  { key: 'p2_max_drawdown_pct',       label: 'Max Drawdown',      type: 'number', unit: '%', phase: 'Phase 2' },
+  { key: 'p2_min_trading_days',       label: 'Min Trading Days',  type: 'number', unit: 'd', phase: 'Phase 2' },
+  { key: 'p2_max_open_positions',     label: 'Max Positions',     type: 'number',             phase: 'Phase 2' },
+  { key: 'p2_max_position_size_pct',  label: 'Max Position Size', type: 'number', unit: '%', phase: 'Phase 2' },
+  { key: 'p2_max_risk_per_trade_pct', label: 'Risk per Trade',    type: 'number', unit: '%', phase: 'Phase 2' },
+  { key: 'p2_daily_profit_cap_pct',   label: 'Daily Profit Cap',  type: 'number', unit: '%', phase: 'Phase 2' },
+  { key: 'p2_leverage_max',           label: 'Max Leverage',      type: 'number', unit: 'x', phase: 'Phase 2' },
+  // Funded
+  { key: 'f_profit_target_pct',       label: 'Profit Target',     type: 'number', unit: '%', phase: 'Funded', description: '0 = no target' },
+  { key: 'f_daily_loss_pct',         label: 'Daily Loss Limit',   type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_max_drawdown_pct',       label: 'Max Drawdown',       type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_min_trading_days',       label: 'Min Trading Days',   type: 'number', unit: 'd', phase: 'Funded' },
+  { key: 'f_max_open_positions',     label: 'Max Positions',      type: 'number',             phase: 'Funded' },
+  { key: 'f_max_position_size_pct',  label: 'Max Position Size',  type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_max_risk_per_trade_pct', label: 'Risk per Trade',     type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_daily_profit_cap_pct',   label: 'Daily Profit Cap',   type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_leverage_max',           label: 'Max Leverage',       type: 'number', unit: 'x', phase: 'Funded' },
+  { key: 'f_consistency_rule_pct',   label: 'Consistency Rule',   type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_profit_split_initial_pct', label: 'Split (initial)',  type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_profit_split_scaled_pct',  label: 'Split (after 1st payout)', type: 'number', unit: '%', phase: 'Funded' },
+  { key: 'f_payout_threshold_pct',   label: 'Payout Threshold',   type: 'number', unit: '%', phase: 'Funded' },
+  // Shared
+  { key: 'trading_hours_start',      label: 'Trading Start',      type: 'time',               phase: 'Shared' },
+  { key: 'trading_hours_end',        label: 'Trading End',        type: 'time',               phase: 'Shared' },
+  { key: 'overnight_allowed',        label: 'Overnight Allowed',  type: 'boolean',            phase: 'Shared' },
+  { key: 'weekend_allowed',          label: 'Weekend Allowed',    type: 'boolean',            phase: 'Shared' },
+  { key: 'holiday_restriction',      label: 'Block Holidays',     type: 'boolean',            phase: 'Shared' },
+  { key: 'inactivity_close_days',    label: 'Inactivity Close',   type: 'number', unit: 'd', phase: 'Shared', description: 'CONFIGURED — not yet enforced by cron' },
+  { key: 'allowed_segments',         label: 'Allowed Segments',   type: 'segments',           phase: 'Shared' },
+];
