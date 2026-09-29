@@ -72,7 +72,7 @@ const LOCAL_CATALOG: CatalogProduct[] = [
     dailyLoss: '2%',
     profitTarget: '—',
     minDays: '—',
-    rules: { profitTargetPct: 0, dailyLossLimitPct: 2, maxDrawdownPct: 4, minTradingDays: 0, maxDaysAllowed: 1, type: 'flash_funding' },
+    rules: { profitTargetPct: 0, dailyLossLimitPct: 2, maxDrawdownPct: 4, minTradingDays: 0, maxDaysAllowed: 1, type: 'evaluation_phase1' },
     sizes: [
       { index: 0, accountSize: 50000,   sizeLabel: '₹50,000',    fee: 1999,  popular: false },
       { index: 1, accountSize: 100000,  sizeLabel: '₹1,00,000',  fee: 3499,  popular: false },
@@ -92,7 +92,7 @@ const LOCAL_CATALOG: CatalogProduct[] = [
     dailyLoss: '3%',
     profitTarget: 'N/A',
     minDays: '7',
-    rules: { profitTargetPct: 0, dailyLossLimitPct: 3, maxDrawdownPct: 5, minTradingDays: 7, maxDaysAllowed: 365, type: 'instant_funding' },
+    rules: { profitTargetPct: 0, dailyLossLimitPct: 3, maxDrawdownPct: 5, minTradingDays: 7, maxDaysAllowed: 365, type: 'evaluation_phase1' },
     sizes: [
       { index: 0, accountSize: 100000,  sizeLabel: '₹1,00,000',  fee: 4999,  popular: false },
       { index: 1, accountSize: 500000,  sizeLabel: '₹5,00,000',  fee: 10999, popular: true  },
@@ -111,7 +111,7 @@ const LOCAL_CATALOG: CatalogProduct[] = [
     dailyLoss: '3%',
     profitTarget: '10%',
     minDays: '5',
-    rules: { profitTargetPct: 10, dailyLossLimitPct: 3, maxDrawdownPct: 6, minTradingDays: 5, maxDaysAllowed: 365, type: '1step_evaluation' },
+    rules: { profitTargetPct: 10, dailyLossLimitPct: 3, maxDrawdownPct: 6, minTradingDays: 5, maxDaysAllowed: 365, type: 'evaluation_phase1' },
     sizes: [
       { index: 0, accountSize: 100000,  sizeLabel: '₹1,00,000',  fee: 2999,  popular: false },
       { index: 1, accountSize: 500000,  sizeLabel: '₹5,00,000',  fee: 11999, popular: true  },
@@ -130,7 +130,7 @@ const LOCAL_CATALOG: CatalogProduct[] = [
     dailyLoss: '3%',
     profitTarget: '8% + 5%',
     minDays: '5',
-    rules: { profitTargetPct: 8, dailyLossLimitPct: 3, maxDrawdownPct: 8, minTradingDays: 5, maxDaysAllowed: 365, type: '2step_evaluation_phase1' },
+    rules: { profitTargetPct: 8, dailyLossLimitPct: 3, maxDrawdownPct: 8, minTradingDays: 5, maxDaysAllowed: 365, type: 'evaluation_phase1' },
     sizes: [
       { index: 0, accountSize: 500000,  sizeLabel: '₹5,00,000',  fee: 11999, popular: false },
       { index: 1, accountSize: 1000000, sizeLabel: '₹10,00,000', fee: 21999, popular: true  },
