@@ -23,6 +23,7 @@ export const sidebarNavigation: NavigationSection[] = [
       { label: 'Emergency Controls',          icon: 'ShieldCheck',      href: '/founder/emergency',         permission: null },
       { label: 'Emergency Manual Provision',  icon: 'UserCog',          href: '/founder/emergency-provision', permission: null },
       { label: 'Account Control',             icon: 'SlidersHorizontal', href: '/founder/account-control',  permission: null },
+      { label: 'Link Terminal Account',       icon: 'Link',              href: '/founder/terminal-account-link', permission: null },
       { label: 'Delete / Archive Accounts',   icon: 'Trash2',           href: '/founder/delete-accounts',   permission: null },
       { label: 'Discount Code Manager',       icon: 'Tag',              href: '/founder/discount-config',   permission: null },
     ],

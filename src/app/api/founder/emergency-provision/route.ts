@@ -244,7 +244,6 @@ export async function POST(request: NextRequest) {
               trading_account_id: existing.id,
               terminal_login: existing.account_code,
               terminal_email: email.toLowerCase(),
-              terminal_url: process.env.TERMINAL_BASE_URL || 'https://terminal.fundedwealth.com',
               account_size: existing.balance,
               challenge_type,
               status: existing.status,
@@ -413,37 +412,6 @@ export async function POST(request: NextRequest) {
       .update({ broker_credentials_encrypted: credPayload })
       .eq('id', tradingAccount.id);
 
-    // ── 8. SSO launch URL ────────────────────────────────────────────────────
-    const terminalBaseUrl = process.env.TERMINAL_BASE_URL || 'https://terminal.fundedwealth.com';
-    const ssoApiKey = process.env.SSO_API_KEY || process.env.TERMINAL_SSO_API_KEY || '';
-    let launchUrl = `${terminalBaseUrl}/auth/sso?token=${encodeURIComponent(credentials.activation_token)}`;
-
-    if (ssoApiKey) {
-      try {
-        const ssoRes = await fetch(`${terminalBaseUrl}/auth/sso/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-sso-api-key': ssoApiKey },
-          body: JSON.stringify({
-            fwUserId: userId,
-            traderId,
-            accountId: tradingAccount.id,
-            challengeId: challengeAccount.id,
-            accountCode: terminalLogin,
-            plan: product.rules.type,  // canonical type string the terminal expects
-            email: email.toLowerCase(),
-            name: name.trim(),
-          }),
-          signal: AbortSignal.timeout(8000),
-        });
-        if (ssoRes.ok) {
-          const ssoData = await ssoRes.json() as { launchUrl?: string; url?: string; token?: string };
-          const resolvedUrl = ssoData.launchUrl || ssoData.url ||
-            (ssoData.token ? `${terminalBaseUrl}/auth/sso?token=${encodeURIComponent(ssoData.token)}` : null);
-          if (resolvedUrl) launchUrl = resolvedUrl;
-        }
-      } catch { /* non-fatal */ }
-    }
-
     // ── 9. Re-read stored account for verification ───────────────────────────
     const { data: storedChallengeAccount } = await supabase
       .from('challenge_accounts')
@@ -465,7 +433,6 @@ export async function POST(request: NextRequest) {
         product_preserved: storedChallengeAccount?.type === challengeAccountType,
         balance_correct: storedChallengeAccount?.initial_balance === account_size,
         credentials_ready: !!terminalLogin && !!credentials.temporary_password,
-        launch_url_built: !!launchUrl,
       },
     };
 
@@ -522,8 +489,6 @@ export async function POST(request: NextRequest) {
         temporary_password: credentials.temporary_password,
         activation_token: credentials.activation_token,
         credential_expiry: credentials.expiry,
-        terminal_url: terminalBaseUrl,
-        launch_url: launchUrl,
         account_size,
         challenge_type: product.slug,
         challenge_display_name: product.displayLabel,

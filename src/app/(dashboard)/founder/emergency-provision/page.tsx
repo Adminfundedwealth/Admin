@@ -56,7 +56,6 @@ interface VerificationChecks {
   product_preserved: boolean;
   balance_correct: boolean;
   credentials_ready: boolean;
-  launch_url_built: boolean;
 }
 
 interface Verification {
@@ -84,9 +83,6 @@ interface ProvisionResult {
   temporary_password: string;
   activation_token: string;
   credential_expiry: string;
-  // BUG 4: Launch URL
-  terminal_url: string;
-  launch_url: string;
   // BUG 1: Exact product values
   account_size: number;
   challenge_type: string;
@@ -113,7 +109,6 @@ interface ExistingAccountData {
   trading_account_id: string;
   terminal_login: string;
   terminal_email: string;
-  terminal_url: string;
   account_size: number;
   challenge_type: string;
   status: string;
@@ -256,41 +251,55 @@ export default function EmergencyManualProvisionPage() {
 
   // Launch terminal — uses SSO endpoint when trading_account_id is available,
   // falls back to direct terminal URL when it is null (e.g. existing account lookup)
-  async function handleLaunchTerminal(
-    tradingAccountId: string | null,
-    loginEmail: string,
-    terminalLogin: string,
-  ) {
+  async function handleLaunchTerminal(tradingAccountId: string | null) {
     setLaunching(true);
     setLaunchError('');
-    try {
-      // If we have no trading_account_id we can't call the SSO endpoint —
-      // open the terminal login page directly instead.
-      if (!tradingAccountId) {
-        const base = process.env.NEXT_PUBLIC_TERMINAL_URL || 'https://terminal.fundedwealth.com';
-        window.open(
-          `${base}/login?login=${encodeURIComponent(terminalLogin)}&email=${encodeURIComponent(loginEmail)}`,
-          '_blank',
-          'noopener,noreferrer',
-        );
-        return;
-      }
+    if (!tradingAccountId) {
+      setLaunchError('This account has no canonical trading-account ID. Link the existing account before launching.');
+      setLaunching(false);
+      return;
+    }
 
+    const launchWindow = window.open('about:blank', '_blank');
+    if (!launchWindow) {
+      setLaunchError('Allow pop-ups for Admin OS to launch the terminal securely.');
+      setLaunching(false);
+      return;
+    }
+
+    try {
       const res = await apiFetch('/api/founder/terminal-launch', {
         method: 'POST',
         body: JSON.stringify({
           trading_account_id: tradingAccountId,
-          email: loginEmail,
-          terminal_login: terminalLogin,
         }),
       });
       const json = await res.json();
       if (!res.ok) {
         setLaunchError(json.error?.message || 'Failed to generate launch URL');
+        launchWindow.close();
         return;
       }
-      window.open(json.launch_url, '_blank', 'noopener,noreferrer');
+      if (typeof json.sso_token !== 'string' || !json.sso_token) {
+        setLaunchError('Terminal SSO returned an invalid handoff.');
+        launchWindow.close();
+        return;
+      }
+
+      const form = launchWindow.document.createElement('form');
+      form.method = 'POST';
+      form.action = 'https://charts.fundedwealth.com/auth/sso';
+      form.setAttribute('referrerpolicy', 'no-referrer');
+      const tokenInput = launchWindow.document.createElement('input');
+      tokenInput.type = 'hidden';
+      tokenInput.name = 'token';
+      tokenInput.value = json.sso_token;
+      form.appendChild(tokenInput);
+      launchWindow.document.body.appendChild(form);
+      launchWindow.opener = null;
+      form.submit();
     } catch {
+      if (!launchWindow.closed) launchWindow.close();
       setLaunchError('Network error. Could not launch terminal.');
     } finally {
       setLaunching(false);
@@ -314,8 +323,6 @@ export default function EmergencyManualProvisionPage() {
       `Temporary Password: ${result.temporary_password}`,
       `Activation Token:   ${result.activation_token}`,
       `Credential Expiry:  ${new Date(result.credential_expiry).toLocaleString()}`,
-      `Terminal URL:       ${result.terminal_url}`,
-      `Launch URL:         ${result.launch_url}`,
       '────────────────────────────────────',
       `Account Size:       ₹${result.account_size.toLocaleString()}`,
       `Challenge:          ${result.challenge_display_name}`,
@@ -468,7 +475,6 @@ export default function EmergencyManualProvisionPage() {
                 <CheckLine label="Product type preserved" pass={result.verification.checks.product_preserved} />
                 <CheckLine label="Balance correct" pass={result.verification.checks.balance_correct} />
                 <CheckLine label="Credentials generated" pass={result.verification.checks.credentials_ready} />
-                <CheckLine label="Launch URL built" pass={result.verification.checks.launch_url_built} />
               </div>
             )}
 
@@ -487,8 +493,6 @@ export default function EmergencyManualProvisionPage() {
               <Button
                 onClick={() => handleLaunchTerminal(
                   result.trading_account_id,
-                  result.terminal_email,
-                  result.terminal_login,
                 )}
                 disabled={launching}
                 variant="outline"
@@ -544,8 +548,6 @@ export default function EmergencyManualProvisionPage() {
               <Button
                 onClick={() => handleLaunchTerminal(
                   existingAccount.trading_account_id,
-                  existingAccount.terminal_email,
-                  existingAccount.terminal_login,
                 )}
                 disabled={launching}
                 variant="outline"
