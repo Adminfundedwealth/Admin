@@ -4,7 +4,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireFounderInHandler } from '@/lib/security/require-auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 
-const TERMINAL_API_URL = process.env.TERMINAL_API_URL || 'https://new-terminal-production.up.railway.app';
+const TERMINAL_API_URL = process.env.NODE_ENV === 'production'
+  ? 'https://new-terminal-production.up.railway.app'
+  : process.env.TERMINAL_API_URL || 'https://new-terminal-production.up.railway.app';
 type LinkMode = 'preview' | 'confirm';
 
 function numeric(value: unknown): number | null {
