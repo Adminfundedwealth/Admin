@@ -26,6 +26,7 @@ interface Preview {
   };
   terminalRuleAction: string;
   provisioning: { id: string; source: string; status: string };
+  ownerSource: 'terminal_trader' | 'completed_founder_order';
   identityAction: 'reuse_existing_identity' | 'invite_existing_customer';
   accountAction: 'already_linked' | 'create_terminal_mapping';
 }
@@ -116,6 +117,7 @@ export default function TerminalAccountLinkPage() {
               <div><dt className="text-muted-foreground">Account / challenge status</dt><dd>{preview.account.status} / {preview.account.challengeStatus}</dd></div>
               <div><dt className="text-muted-foreground">Starting / current balance</dt><dd>₹{preview.account.initialBalance.toLocaleString('en-IN')} / ₹{preview.account.currentBalance.toLocaleString('en-IN')}</dd></div>
               <div><dt className="text-muted-foreground">Provisioning record</dt><dd>{preview.provisioning.source} · {preview.provisioning.status} · {preview.provisioning.id}</dd></div>
+              <div><dt className="text-muted-foreground">Owner verification</dt><dd>{preview.ownerSource === 'completed_founder_order' ? 'Matched to the customer on the completed founder order' : 'Matched by the provisioned trader record'}</dd></div>
               <div><dt className="text-muted-foreground">Challenge limits</dt><dd>Target {preview.account.rules.profitTargetPct}%, daily loss {preview.account.rules.dailyLossLimitPct}%, drawdown {preview.account.rules.maxDrawdownPct}%, min days {preview.account.rules.minTradingDays}</dd></div>
               <div><dt className="text-muted-foreground">Terminal rules</dt><dd>{preview.terminalRuleAction}</dd></div>
               <div><dt className="text-muted-foreground">Terminal identity</dt><dd>{preview.identityAction === 'reuse_existing_identity' ? 'Reuse existing identity' : 'Invite customer to existing email'}</dd></div>

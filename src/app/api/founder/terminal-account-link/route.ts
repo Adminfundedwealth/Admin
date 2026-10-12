@@ -49,7 +49,7 @@ async function loadVerifiedSource(accountId: string) {
 
   const { data: provisioning, error: provisioningError } = await supabase
     .from('provisioning_logs')
-    .select('id, status, source, trader_id, trading_account_id, challenge_account_id')
+    .select('id, status, source, trader_id, trading_account_id, challenge_account_id, order_id')
     .eq('trading_account_id', account.id)
     .eq('challenge_account_id', challenge.id)
     .eq('status', 'completed')
@@ -65,14 +65,32 @@ async function loadVerifiedSource(accountId: string) {
     .from('terminal_traders')
     .select('id, external_id, user_id, email')
     .eq('id', account.trader_id)
-    .single();
-  if (traderError || !trader) {
-    throw Object.assign(new Error('The account owner link is missing from FundedWealth provisioning records.'), { status: 409 });
+    .maybeSingle();
+  if (traderError) {
+    throw Object.assign(new Error('The FundedWealth trader lookup failed.'), { status: 502 });
   }
 
-  const customerId = trader.external_id || trader.user_id;
+  let customerId = trader?.external_id || trader?.user_id || null;
+  const traderEmail = trader?.email || null;
+  let ownerSource: 'terminal_trader' | 'completed_founder_order' = 'terminal_trader';
+  if (!trader && provisioning[0].source === 'founder_emergency' && provisioning[0].order_id) {
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('user_id, status, account_size, payment_method')
+      .eq('id', provisioning[0].order_id)
+      .single();
+    const initialBalance = numeric(challenge.initial_balance);
+    const orderAccountSize = numeric(order?.account_size);
+    if (orderError || !order || order.status !== 'completed' ||
+        order.payment_method !== 'founder_emergency' ||
+        orderAccountSize !== initialBalance || !order.user_id) {
+      throw Object.assign(new Error('The completed founder-emergency order does not verify this customer and account.'), { status: 409 });
+    }
+    customerId = order.user_id;
+    ownerSource = 'completed_founder_order';
+  }
   if (typeof customerId !== 'string' || !customerId) {
-    throw Object.assign(new Error('The FundedWealth trader has no canonical customer mapping.'), { status: 409 });
+    throw Object.assign(new Error('The account owner has no verified customer mapping.'), { status: 409 });
   }
   const { data: customer, error: customerError } = await supabase
     .from('users')
@@ -82,7 +100,7 @@ async function loadVerifiedSource(accountId: string) {
   if (customerError || !customer || !customer.email ||
       (customer.account_status && customer.account_status !== 'active') ||
       customer.is_active === false ||
-      (trader.email && trader.email.toLowerCase() !== customer.email.toLowerCase())) {
+      (traderEmail && traderEmail.toLowerCase() !== customer.email.toLowerCase())) {
     throw Object.assign(new Error('The active FundedWealth customer identity could not be verified.'), { status: 409 });
   }
 
@@ -141,6 +159,7 @@ async function loadVerifiedSource(accountId: string) {
       tradingAccountId: provisioning[0].trading_account_id,
       challengeAccountId: provisioning[0].challenge_account_id,
     },
+    ownerSource,
   };
 }
 
@@ -230,6 +249,7 @@ export async function POST(request: NextRequest) {
         source: source.provisioning.source,
         status: source.provisioning.status,
       };
+      terminalData.preview.ownerSource = source.ownerSource;
     }
 
     await writeAudit(staff, request, source,
