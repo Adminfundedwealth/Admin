@@ -4,7 +4,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requireFounderInHandler } from '@/lib/security/require-auth';
 
-const TERMINAL_SSO_API_URL = process.env.TERMINAL_SSO_API_URL || 'https://new-terminal-production.up.railway.app';
+const TERMINAL_SSO_API_URL = process.env.NODE_ENV === 'production'
+  ? 'https://new-terminal-production.up.railway.app'
+  : process.env.TERMINAL_SSO_API_URL || 'https://new-terminal-production.up.railway.app';
 const TERMINAL_PUBLIC_URL = 'https://charts.fundedwealth.com';
 
 /**
