@@ -86,7 +86,7 @@ export default function TerminalAccountLinkPage() {
       <Card>
         <CardContent className="space-y-4 p-5">
           <label className="block space-y-2 text-sm">
-            <span>FundedWealth trading account ID</span>
+            <span>FundedWealth account UUID or account code</span>
             <Input
               value={accountId}
               onChange={(event) => {
@@ -95,7 +95,7 @@ export default function TerminalAccountLinkPage() {
                 setComplete(false);
                 setConfirmation('');
               }}
-              placeholder="Existing trading account UUID"
+              placeholder="Enter the account code shown on the customer dashboard"
               disabled={busy || complete}
             />
           </label>
