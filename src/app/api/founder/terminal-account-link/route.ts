@@ -1,7 +1,6 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auditLogger } from '@/lib/audit/logger';
 import { requireFounderInHandler } from '@/lib/security/require-auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 
@@ -166,31 +165,6 @@ async function loadVerifiedSource(accountId: string) {
   };
 }
 
-async function writeAudit(
-  staff: { id: string; roles: string[] },
-  request: NextRequest,
-  source: Awaited<ReturnType<typeof loadVerifiedSource>>,
-  action: string,
-  outcome: Record<string, unknown>,
-) {
-  await auditLogger.log({
-    actorId: staff.id,
-    actorRole: staff.roles.join(',') || 'Founder',
-    action,
-    targetEntityType: 'trading_account',
-    targetEntityId: source.account.id,
-    previousState: null,
-    newState: outcome,
-    ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown',
-    deviceInfo: {
-      fingerprint: 'terminal-account-link',
-      browser: request.headers.get('user-agent') || 'unknown',
-      os: 'Admin OS server',
-      ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown',
-    },
-  });
-}
-
 export async function POST(request: NextRequest) {
   const { staff, error: authError } = await requireFounderInHandler();
   if (authError) return authError;
@@ -221,10 +195,6 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    if (body.mode === 'confirm') {
-      await writeAudit(staff, request, source, 'terminal_account_link_started', { outcome: 'confirmation_received' });
-    }
-
     const terminalRes = await fetch(`${TERMINAL_API_URL}/api/admin/account-links`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-sso-api-key': sharedKey },
@@ -240,9 +210,6 @@ export async function POST(request: NextRequest) {
     });
     const terminalData = await terminalRes.json();
     if (!terminalRes.ok) {
-      await writeAudit(staff, request, source,
-        body.mode === 'preview' ? 'terminal_account_link_previewed' : 'terminal_account_link_completed',
-        { outcome: 'rejected', status: terminalRes.status });
       return NextResponse.json(terminalData, { status: terminalRes.status });
     }
 
@@ -255,11 +222,6 @@ export async function POST(request: NextRequest) {
       terminalData.preview.ownerSource = source.ownerSource;
     }
 
-    await writeAudit(staff, request, source,
-      body.mode === 'preview' ? 'terminal_account_link_previewed' : 'terminal_account_link_completed',
-      body.mode === 'preview'
-        ? { outcome: 'preview_ready', preview: terminalData.preview }
-        : { outcome: 'linked', result: terminalData.result });
     return NextResponse.json(terminalData);
   } catch (error) {
     const status = Number.isInteger((error as { status?: number })?.status) ? (error as { status: number }).status : 502;
