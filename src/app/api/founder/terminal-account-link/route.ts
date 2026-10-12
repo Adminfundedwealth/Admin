@@ -16,15 +16,24 @@ function numeric(value: unknown): number | null {
 
 async function loadVerifiedSource(accountId: string) {
   const supabase = createAdminClient();
-  const { data: account, error: accountError } = await supabase
+  const accountQuery = supabase
     .from('trading_accounts')
-    .select('id, trader_id, challenge_id, account_code, balance, available_margin, used_margin, status')
-    .eq('id', accountId)
-    .single();
+    .select('id, trader_id, challenge_id, account_code, balance, available_margin, used_margin, status');
+  const lookup = /^[0-9a-f-]{36}$/i.test(accountId)
+    ? accountQuery.eq('id', accountId)
+    : accountQuery.eq('account_code', accountId);
+  const { data: accounts, error: accountError } = await lookup.limit(2);
 
-  if (accountError || !account) {
+  if (accountError) {
+    throw Object.assign(new Error('FundedWealth trading account lookup failed.'), { status: 502 });
+  }
+  if (!accounts?.length) {
     throw Object.assign(new Error('FundedWealth trading account was not found.'), { status: 404 });
   }
+  if (accounts.length !== 1) {
+    throw Object.assign(new Error('The account identifier does not resolve to exactly one FundedWealth account.'), { status: 409 });
+  }
+  const account = accounts[0];
   if (!account.trader_id || !account.challenge_id || !account.account_code || account.status !== 'active') {
     throw Object.assign(new Error('The FundedWealth trading account is not eligible for terminal linking.'), { status: 409 });
   }
@@ -173,8 +182,9 @@ export async function POST(request: NextRequest) {
   if (body.mode !== 'preview' && body.mode !== 'confirm') {
     return NextResponse.json({ error: { code: 'VALIDATION_ERROR', message: 'mode must be preview or confirm.' } }, { status: 400 });
   }
-  if (!body.trading_account_id || !/^[0-9a-f-]{36}$/i.test(body.trading_account_id)) {
-    return NextResponse.json({ error: { code: 'VALIDATION_ERROR', message: 'A valid trading_account_id is required.' } }, { status: 400 });
+  if (!body.trading_account_id ||
+      !(/^[0-9a-f-]{36}$/i.test(body.trading_account_id) || /^[a-z0-9][a-z0-9-]{4,39}$/i.test(body.trading_account_id))) {
+    return NextResponse.json({ error: { code: 'VALIDATION_ERROR', message: 'A valid FundedWealth account UUID or account code is required.' } }, { status: 400 });
   }
   const sharedKey = process.env.SSO_API_KEY || process.env.SSO_SHARED_SECRET;
   if (!sharedKey) {
