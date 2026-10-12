@@ -63,17 +63,17 @@ async function loadVerifiedSource(accountId: string) {
 
   const { data: trader, error: traderError } = await supabase
     .from('terminal_traders')
-    .select('id, external_id, user_id, email')
+    .select('id, external_id, email')
     .eq('id', account.trader_id)
     .maybeSingle();
   if (traderError) {
     throw Object.assign(new Error('The FundedWealth trader lookup failed.'), { status: 502 });
   }
 
-  let customerId = trader?.external_id || trader?.user_id || null;
+  let customerId = trader?.external_id || null;
   const traderEmail = trader?.email || null;
   let ownerSource: 'terminal_trader' | 'completed_founder_order' = 'terminal_trader';
-  if (!trader && provisioning[0].source === 'founder_emergency' && provisioning[0].order_id) {
+  if (provisioning[0].source === 'founder_emergency' && provisioning[0].order_id) {
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select('user_id, status, account_size, payment_method')
@@ -85,6 +85,9 @@ async function loadVerifiedSource(accountId: string) {
         order.payment_method !== 'founder_emergency' ||
         orderAccountSize !== initialBalance || !order.user_id) {
       throw Object.assign(new Error('The completed founder-emergency order does not verify this customer and account.'), { status: 409 });
+    }
+    if (trader?.external_id && trader.external_id !== order.user_id) {
+      throw Object.assign(new Error('The provisioned trader owner conflicts with the completed founder-emergency order.'), { status: 409 });
     }
     customerId = order.user_id;
     ownerSource = 'completed_founder_order';
