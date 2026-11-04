@@ -25,7 +25,7 @@ export const sidebarNavigation: NavigationSection[] = [
       { label: 'Account Control',             icon: 'SlidersHorizontal', href: '/founder/account-control',  permission: null },
       { label: 'Link Terminal Account',       icon: 'Link',              href: '/founder/terminal-account-link', permission: null },
       { label: 'Delete / Archive Accounts',   icon: 'Trash2',           href: '/founder/delete-accounts',   permission: null },
-      { label: 'Discount Code Manager',       icon: 'Tag',              href: '/founder/discount-config',   permission: null },
+      { label: 'Promotional Campaigns',       icon: 'Tag',              href: '/founder/discount-config',   permission: null },
     ],
   },
   {
