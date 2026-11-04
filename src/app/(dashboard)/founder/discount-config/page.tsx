@@ -348,6 +348,8 @@ export default function DiscountConfigPage() {
         </div>
       </div>
 
+      {error && <div role="alert" className="text-sm text-red-500">{error}</div>}
+
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {campaigns.map((campaign) => (
           <button
@@ -543,7 +545,6 @@ export default function DiscountConfigPage() {
                 </Button>
               )}
               {saved && <span className="text-sm font-medium text-green-500">Saved and reloaded.</span>}
-              {error && <span role="alert" className="text-sm text-red-500">{error}</span>}
             </div>
           </CardContent>
         </Card>
