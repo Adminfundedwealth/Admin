@@ -1,15 +1,30 @@
 'use client';
-import { apiFetch } from '@/lib/api/fetch';
+import { apiFetch, readApiJson } from '@/lib/api/fetch';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { DataTable } from '@/components/shared/data-table';
-import { FilterBar, TextFilter, SelectFilter, DateRangeFilter } from '@/components/shared/filters';
+import { FilterBar, TextFilter, DateRangeFilter } from '@/components/shared/filters';
 import { LoadingState } from '@/components/shared/loading-state';
 import { ErrorState } from '@/components/shared/error-state';
 import { EmptyState } from '@/components/shared/empty-state';
 import type { ColumnDef } from '@tanstack/react-table';
 
 interface AuditRow { id: string; actor_id: string; actor_role: string; action: string; target_entity_type: string; target_entity_id: string; timestamp: string; ip_address: string; }
+
+function isAuditRow(value: unknown): value is AuditRow {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.id === 'string' &&
+    typeof row.actor_id === 'string' &&
+    typeof row.actor_role === 'string' &&
+    typeof row.action === 'string' &&
+    typeof row.target_entity_type === 'string' &&
+    typeof row.target_entity_id === 'string' &&
+    typeof row.timestamp === 'string' &&
+    typeof row.ip_address === 'string'
+  );
+}
 
 const columns: ColumnDef<AuditRow, any>[] = [
   { accessorKey: 'timestamp', header: 'Timestamp', cell: ({ getValue }) => { const v = getValue() as string | null; return v ? new Date(v).toLocaleString() : '—'; } },
@@ -27,8 +42,7 @@ export default function AuditPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [filters, setFilters] = useState({ action: '', entity: '', dateFrom: '', dateTo: '', ip: '' });
 
-  useEffect(() => { fetchAudit(); }, [filters]);
-  async function fetchAudit() {
+  const fetchAudit = useCallback(async () => {
     setLoading(true); setError('');
     try {
       const params = new URLSearchParams();
@@ -38,13 +52,32 @@ export default function AuditPage() {
       if (filters.dateTo) params.set('date_to', filters.dateTo);
       if (filters.ip) params.set('ip_address', filters.ip);
       const res = await apiFetch(`/api/audit?${params.toString()}`);
-      if (!res.ok) throw new Error('Failed');
-      const json = await res.json();
-      setRecords(json.data || []);
-      setTotalCount(json.meta?.totalCount ?? 0);
-    } catch { setError('Failed to load audit records.'); }
+      const json = await readApiJson(res);
+      if (!res.ok) {
+        const apiError = json.error;
+        const message = apiError && typeof apiError === 'object'
+          ? (apiError as Record<string, unknown>).message
+          : null;
+        throw new Error(typeof message === 'string' ? message : `Audit request failed (${res.status})`);
+      }
+      if (!Array.isArray(json.data) || !json.data.every(isAuditRow)) {
+        throw new Error('The audit service returned an invalid response');
+      }
+
+      setRecords(json.data);
+      const meta = json.meta;
+      const totalCount = meta && typeof meta === 'object'
+        ? (meta as Record<string, unknown>).totalCount
+        : null;
+      setTotalCount(typeof totalCount === 'number' ? totalCount : 0);
+    } catch (error) {
+      console.error('Failed to load audit records:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load audit records');
+    }
     finally { setLoading(false); }
-  }
+  }, [filters]);
+
+  useEffect(() => { void fetchAudit(); }, [fetchAudit]);
 
   if (error) return <ErrorState message={error} onRetry={fetchAudit} />;
   return (

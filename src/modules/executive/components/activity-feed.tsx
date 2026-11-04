@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { apiFetch, readApiJson } from '@/lib/api/fetch';
 import { formatDate } from '@/lib/utils';
 
 interface ActivityEvent {
@@ -25,6 +26,18 @@ const eventTypeColors: Record<string, string> = {
   risk_alert: 'bg-red-600',
 };
 
+function isActivityEvent(value: unknown): value is ActivityEvent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const event = value as Record<string, unknown>;
+  return (
+    typeof event.id === 'string' &&
+    typeof event.type === 'string' &&
+    typeof event.title === 'string' &&
+    typeof event.description === 'string' &&
+    typeof event.timestamp === 'string'
+  );
+}
+
 /**
  * Live activity feed showing the 20 most recent significant events.
  * Updates in real-time via polling (5s interval).
@@ -32,27 +45,38 @@ const eventTypeColors: Record<string, string> = {
 export function ActivityFeed() {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  useEffect(() => {
-    fetchEvents();
-    // Poll every 5 seconds for real-time feel
-    const interval = setInterval(fetchEvents, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  async function fetchEvents() {
+  const fetchEvents = useCallback(async () => {
+    setError('');
     try {
-      const res = await fetch('/api/executive/activity');
-      if (res.ok) {
-        const json = await res.json();
-        setEvents(json.data || []);
+      const res = await apiFetch('/api/executive/activity');
+      const json = await readApiJson(res);
+      if (!res.ok) {
+        const apiError = json.error;
+        const message = apiError && typeof apiError === 'object'
+          ? (apiError as Record<string, unknown>).message
+          : null;
+        throw new Error(typeof message === 'string' ? message : `Activity request failed (${res.status})`);
       }
-    } catch {
-      // Silently fail — keep existing data
+      if (!Array.isArray(json.data) || !json.data.every(isActivityEvent)) {
+        throw new Error('The activity service returned an invalid response');
+      }
+      setEvents(json.data);
+    } catch (error) {
+      console.error('Failed to load executive activity:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load executive activity');
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    void fetchEvents();
+    // Poll every 5 seconds for real-time feel
+    const interval = setInterval(() => void fetchEvents(), 5000);
+    return () => clearInterval(interval);
+  }, [fetchEvents]);
 
   return (
     <Card className="h-full">
@@ -63,7 +87,15 @@ export function ActivityFeed() {
         {loading && events.length === 0 && (
           <p className="text-sm text-muted-foreground text-center py-4">Loading...</p>
         )}
-        {!loading && events.length === 0 && (
+        {error && (
+          <div className="py-4 text-center" role="alert">
+            <p className="text-sm text-destructive">{error}</p>
+            <button type="button" className="mt-2 text-sm underline" onClick={() => void fetchEvents()}>
+              Try again
+            </button>
+          </div>
+        )}
+        {!loading && !error && events.length === 0 && (
           <p className="text-sm text-muted-foreground text-center py-4">No recent activity</p>
         )}
         {events.map((event) => (

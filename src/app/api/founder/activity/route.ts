@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getAuthenticatedStaff } from '@/lib/auth/get-staff';
+import type { AuditRecord } from '@/types/database';
 
 /**
  * GET /api/founder/activity
@@ -18,8 +19,22 @@ export async function GET(request: NextRequest) {
 
     const supabase = createAdminClient();
     const params = request.nextUrl.searchParams;
-    const filter = params.get('filter') || 'all'; // all, mutations, logins, exports
-    const page = parseInt(params.get('page') || '1', 10);
+    const filter = params.get('filter') || 'all';
+    if (!['all', 'mutations', 'logins', 'exports'].includes(filter)) {
+      return NextResponse.json(
+        { error: { code: 'INVALID_FILTER', message: 'Unsupported activity filter' } },
+        { status: 400 },
+      );
+    }
+
+    const page = Number(params.get('page') || '1');
+    if (!Number.isSafeInteger(page) || page < 1) {
+      return NextResponse.json(
+        { error: { code: 'INVALID_PAGE', message: 'Page must be a positive integer' } },
+        { status: 400 },
+      );
+    }
+
     const pageSize = 50;
     const offset = (page - 1) * pageSize;
 
@@ -44,29 +59,45 @@ export async function GET(request: NextRequest) {
     const { data: records, error, count } = await query;
 
     if (error) {
-      // audit_records may not be in schema cache — return empty list gracefully
-      console.warn('Founder activity: audit_records schema cache error:', error.message);
-      return NextResponse.json({
-        data: [],
-        meta: { page, pageSize, totalCount: 0, totalPages: 0 },
-        warning: 'Activity log temporarily unavailable',
+      console.error('Founder activity query failed:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
       });
+      return NextResponse.json(
+        { error: { code: 'ACTIVITY_QUERY_FAILED', message: 'Activity data is temporarily unavailable' } },
+        { status: 500 },
+      );
     }
 
     // Resolve staff names
-    const actorIds = Array.from(new Set((records || []).map((r: any) => r.actor_id).filter(Boolean)));
+    const activityRecords = (records || []) as AuditRecord[];
+    const actorIds = Array.from(new Set(activityRecords.map((record) => record.actor_id).filter(Boolean)));
     let staffMap: Record<string, { name: string; roles: string[] }> = {};
 
     if (actorIds.length > 0) {
-      const { data: staffMembers } = await supabase
+      const { data: staffMembers, error: staffError } = await supabase
         .from('staff_members')
         .select('id, name')
         .in('id', actorIds);
 
-      const { data: roleData } = await supabase
+      const { data: roleData, error: roleError } = await supabase
         .from('staff_role_assignments')
         .select('staff_id, roles!inner(name)')
         .in('staff_id', actorIds);
+
+      const enrichmentError = staffError ?? roleError;
+      if (enrichmentError) {
+        console.error('Founder activity enrichment failed:', {
+          code: enrichmentError.code,
+          message: enrichmentError.message,
+        });
+        return NextResponse.json(
+          { error: { code: 'ACTIVITY_ENRICHMENT_FAILED', message: 'Activity data is temporarily unavailable' } },
+          { status: 500 },
+        );
+      }
 
       for (const s of staffMembers || []) {
         staffMap[s.id] = { name: s.name, roles: [] };
@@ -79,7 +110,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const enriched = (records || []).map((r: any) => ({
+    const enriched = activityRecords.map((r) => ({
       id: r.id,
       staffId: r.actor_id,
       staffName: staffMap[r.actor_id]?.name || 'Unknown',

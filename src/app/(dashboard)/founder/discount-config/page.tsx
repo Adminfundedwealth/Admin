@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { apiFetch } from '@/lib/api/fetch';
+import { apiFetch, readApiJson } from '@/lib/api/fetch';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -120,20 +120,6 @@ function formFromCampaign(campaign: Campaign): CampaignForm {
   };
 }
 
-async function readJson(response: Response): Promise<Record<string, unknown>> {
-  const body = await response.text();
-  if (!body) {
-    throw new Error(`The server returned an empty response (HTTP ${response.status})`);
-  }
-  try {
-    const parsed: unknown = JSON.parse(body);
-    if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
-  } catch {
-    throw new Error(`The server returned an invalid response (HTTP ${response.status})`);
-  }
-  throw new Error(`The server returned an invalid response (HTTP ${response.status})`);
-}
-
 function statusStyle(status: CampaignStatus): string {
   if (status === 'active') return 'bg-green-500/15 text-green-500';
   if (status === 'scheduled') return 'bg-blue-500/15 text-blue-400';
@@ -158,7 +144,7 @@ export default function DiscountConfigPage() {
     setError('');
     try {
       const response = await apiFetch('/api/founder/promo-campaigns');
-      const payload = await readJson(response);
+      const payload = await readApiJson(response);
       if (!response.ok) {
         const apiError = payload.error as { message?: string } | undefined;
         throw new Error(apiError?.message || `Unable to load campaigns (HTTP ${response.status})`);
@@ -311,7 +297,7 @@ export default function DiscountConfigPage() {
         method: form.id ? 'PUT' : 'POST',
         body: JSON.stringify(payload),
       });
-      const responsePayload = await readJson(response);
+      const responsePayload = await readApiJson(response);
       if (!response.ok) {
         const apiError = responsePayload.error as { message?: string } | undefined;
         throw new Error(apiError?.message || `Save failed (HTTP ${response.status})`);

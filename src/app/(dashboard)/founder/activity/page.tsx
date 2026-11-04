@@ -1,7 +1,7 @@
 'use client';
-import { apiFetch } from '@/lib/api/fetch';
+import { apiFetch, readApiJson } from '@/lib/api/fetch';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/shared/loading-state';
@@ -27,6 +27,23 @@ interface ActivityEntry {
   metadata: Record<string, unknown> | null;
 }
 
+function isActivityEntry(value: unknown): value is ActivityEntry {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.id === 'string' &&
+    typeof entry.staffId === 'string' &&
+    typeof entry.staffName === 'string' &&
+    typeof entry.staffRole === 'string' &&
+    typeof entry.action === 'string' &&
+    typeof entry.targetEntityType === 'string' &&
+    typeof entry.targetEntityId === 'string' &&
+    typeof entry.ipAddress === 'string' &&
+    typeof entry.timestamp === 'string' &&
+    (entry.metadata === null || (typeof entry.metadata === 'object' && !Array.isArray(entry.metadata)))
+  );
+}
+
 export default function StaffActivityPage() {
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,27 +51,52 @@ export default function StaffActivityPage() {
   const [filter, setFilter] = useState('all');
   const [totalCount, setTotalCount] = useState(0);
 
-  useEffect(() => {
-    fetchActivity();
-  }, [filter]);
-
-  async function fetchActivity() {
+  const fetchActivity = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const params = new URLSearchParams();
       if (filter !== 'all') params.set('filter', filter);
       const res = await apiFetch(`/api/founder/activity?${params.toString()}`);
-      if (!res.ok) throw new Error('Failed to fetch activity');
-      const json = await res.json();
-      setActivities(json.data || []);
-      setTotalCount(json.meta?.totalCount || 0);
-    } catch {
-      setError('Failed to load activity feed.');
+      let json: Record<string, unknown>;
+      try {
+        json = await readApiJson(res);
+      } catch (parseError) {
+        if (res.ok) throw parseError;
+        throw new Error(`Activity request failed (${res.status}): ${
+          parseError instanceof Error ? parseError.message : 'The response could not be parsed'
+        }`);
+      }
+
+      if (!res.ok) {
+        const apiError = json.error;
+        const message = apiError && typeof apiError === 'object'
+          ? (apiError as Record<string, unknown>).message
+          : null;
+        throw new Error(typeof message === 'string' ? message : `Activity request failed (${res.status})`);
+      }
+
+      if (!Array.isArray(json.data) || !json.data.every(isActivityEntry)) {
+        throw new Error('The activity service returned an invalid response');
+      }
+
+      setActivities(json.data);
+      const meta = json.meta;
+      const totalCount = meta && typeof meta === 'object'
+        ? (meta as Record<string, unknown>).totalCount
+        : null;
+      setTotalCount(typeof totalCount === 'number' ? totalCount : 0);
+    } catch (error) {
+      console.error('Failed to load activity feed:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load activity feed.');
     } finally {
       setLoading(false);
     }
-  }
+  }, [filter]);
+
+  useEffect(() => {
+    fetchActivity();
+  }, [fetchActivity]);
 
   function formatTimestamp(ts: string): string {
     const diff = Date.now() - new Date(ts).getTime();

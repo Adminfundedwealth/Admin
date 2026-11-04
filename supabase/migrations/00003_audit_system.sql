@@ -6,7 +6,7 @@
 
 -- Audit Records (Immutable - no UPDATE/DELETE allowed)
 CREATE TABLE audit_records (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID NOT NULL DEFAULT gen_random_uuid(),
     actor_id UUID NOT NULL REFERENCES staff_members(id),
     actor_role VARCHAR(100) NOT NULL,
     action VARCHAR(100) NOT NULL,
@@ -19,7 +19,8 @@ CREATE TABLE audit_records (
     device_info JSONB NOT NULL,
     batch_id UUID,
     metadata JSONB,
-    missing_permission VARCHAR(100)
+    missing_permission VARCHAR(100),
+    PRIMARY KEY (id, timestamp)
 ) PARTITION BY RANGE (timestamp);
 
 -- Create partitions for the current year and next year

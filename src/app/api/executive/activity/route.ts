@@ -12,7 +12,7 @@ export async function GET() {
     const supabase = createAdminClient();
 
     // audit_records may not be in schema cache — return empty list gracefully
-    const { data: records } = await supabase
+    const { data: records, error } = await supabase
       .from('audit_records')
       .select('id, action, target_entity_type, target_entity_id, timestamp, metadata')
       .in('action', [
@@ -30,6 +30,17 @@ export async function GET() {
       .order('timestamp', { ascending: false })
       .limit(20);
 
+    if (error) {
+      console.error('Executive activity query failed:', {
+        code: error.code,
+        message: error.message,
+      });
+      return NextResponse.json(
+        { error: { code: 'ACTIVITY_QUERY_FAILED', message: 'Executive activity is temporarily unavailable' } },
+        { status: 500 },
+      );
+    }
+
     const events = (records || []).map((record) => ({
       id: record.id,
       type: record.action.split('.')[1] || record.action,
@@ -41,7 +52,10 @@ export async function GET() {
     return NextResponse.json({ data: events });
   } catch (err) {
     console.error('Activity feed error:', err);
-    return NextResponse.json({ data: [] });
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message: 'Executive activity is temporarily unavailable' } },
+      { status: 500 },
+    );
   }
 }
 

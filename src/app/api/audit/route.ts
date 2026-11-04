@@ -30,15 +30,18 @@ export async function GET(request: NextRequest) {
 
     const { data, error, count } = await query;
     if (error) {
-      // audit_records may not be exposed in the schema cache for anon/service reads
-      // Return empty list rather than crashing the dashboard
-      console.warn('Audit query error (table may need schema cache refresh):', error.message);
-      return NextResponse.json({
-        data: [],
-        meta: { page, pageSize, totalCount: 0, totalPages: 0 },
-        warning: 'Audit records temporarily unavailable: ' + error.message,
-      });
+      console.error('Audit query failed:', { code: error.code, message: error.message });
+      return NextResponse.json(
+        { error: { code: 'AUDIT_QUERY_FAILED', message: 'Audit records are temporarily unavailable' } },
+        { status: 500 },
+      );
     }
     return NextResponse.json({ data: data || [], meta: { page, pageSize, totalCount: count ?? 0, totalPages: Math.ceil((count ?? 0) / pageSize) } });
-  } catch { return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message: 'Failed' } }, { status: 500 }); }
+  } catch (error) {
+    console.error('Audit records request failed:', error);
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message: 'Audit records are temporarily unavailable' } },
+      { status: 500 },
+    );
+  }
 }
