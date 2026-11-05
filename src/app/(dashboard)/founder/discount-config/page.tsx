@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch, readApiJson } from '@/lib/api/fetch';
+import { CampaignRequestError, invalidateCampaignCache, loadCampaigns as requestCampaigns } from '@/lib/promotions/campaign-client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { EmptyState } from '@/components/shared/empty-state';
-import { ErrorState } from '@/components/shared/error-state';
 import { LoadingState } from '@/components/shared/loading-state';
 import { dateTimeInputToUtc, formatInTimeZone, utcToDateTimeInput } from '@/lib/promotions/time';
-import { Plus, RefreshCw, Save, Tag } from 'lucide-react';
+import { AlertTriangle, Plus, RefreshCw, Save, Tag } from 'lucide-react';
 
 const PLAN_TYPES = [
   { key: 'flash', label: 'Flash Funding', color: 'text-yellow-400' },
@@ -137,18 +137,16 @@ export default function DiscountConfigPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [retryAfterUntil, setRetryAfterUntil] = useState<number | null>(null);
+  const [retrySeconds, setRetrySeconds] = useState(0);
   const saveInFlight = useRef(false);
 
-  const loadCampaigns = useCallback(async (showLoading = true): Promise<boolean> => {
+  const loadCampaigns = useCallback(async (showLoading = true, forceRefresh = false): Promise<boolean> => {
     if (showLoading) setLoading(true);
     setError('');
+    setRetryAfterUntil(null);
     try {
-      const response = await apiFetch('/api/founder/promo-campaigns');
-      const payload = await readApiJson(response);
-      if (!response.ok) {
-        const apiError = payload.error as { message?: string } | undefined;
-        throw new Error(apiError?.message || `Unable to load campaigns (HTTP ${response.status})`);
-      }
+      const payload = await requestCampaigns(forceRefresh);
       if (!Array.isArray(payload.data) || !Array.isArray(payload.history)) {
         throw new Error('The campaign service returned an invalid response');
       }
@@ -159,6 +157,9 @@ export default function DiscountConfigPage() {
     } catch (loadError) {
       console.error('Failed to load promotional campaigns:', loadError);
       setError(loadError instanceof Error ? loadError.message : 'Failed to load campaigns');
+      if (loadError instanceof CampaignRequestError && loadError.retryAfterMs > 0) {
+        setRetryAfterUntil(Date.now() + loadError.retryAfterMs);
+      }
       return false;
     } finally {
       if (showLoading) setLoading(false);
@@ -168,6 +169,22 @@ export default function DiscountConfigPage() {
   useEffect(() => {
     void loadCampaigns();
   }, [loadCampaigns]);
+
+  useEffect(() => {
+    if (!retryAfterUntil) {
+      setRetrySeconds(0);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.ceil((retryAfterUntil - Date.now()) / 1000));
+      setRetrySeconds(remaining);
+      if (remaining === 0) setRetryAfterUntil(null);
+    };
+    updateCountdown();
+    const timer = window.setInterval(updateCountdown, 1000);
+    return () => window.clearInterval(timer);
+  }, [retryAfterUntil]);
 
   const currentCampaign = useMemo(
     () => campaigns.find((campaign) => campaign.id === selectedId) || null,
@@ -308,7 +325,8 @@ export default function DiscountConfigPage() {
 
       const savedCampaign = responsePayload.data as Campaign;
       setSelectedId(savedCampaign.id);
-      const refreshed = await loadCampaigns(false);
+      invalidateCampaignCache();
+      const refreshed = await loadCampaigns(false, true);
       if (!refreshed) throw new Error('The campaign was saved, but the refreshed configuration could not be loaded.');
       setSaved(true);
       setTimeout(() => setSaved(false), 3500);
@@ -323,7 +341,24 @@ export default function DiscountConfigPage() {
 
   if (loading) return <LoadingState rows={6} />;
   if (error && campaigns.length === 0 && !form) {
-    return <ErrorState message={error} onRetry={() => void loadCampaigns()} />;
+    return (
+      <div className="flex flex-col items-center justify-center px-4 py-12 text-center" role="alert">
+        <div className="mb-4 rounded-full bg-destructive/10 p-3">
+          <AlertTriangle className="h-6 w-6 text-destructive" />
+        </div>
+        <h3 className="mb-1 text-lg font-semibold">Campaigns temporarily unavailable</h3>
+        <p className="mb-4 max-w-sm text-sm text-muted-foreground">{error}</p>
+        <Button
+          variant="outline"
+          onClick={() => void loadCampaigns(true, true)}
+          disabled={loading || retrySeconds > 0}
+          className="gap-2"
+        >
+          <RefreshCw className="h-4 w-4" />
+          {retrySeconds > 0 ? `Try Again in ${retrySeconds}s` : 'Try Again'}
+        </Button>
+      </div>
+    );
   }
 
   return (
@@ -339,8 +374,14 @@ export default function DiscountConfigPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => void loadCampaigns()} className="gap-2">
-            <RefreshCw className="h-4 w-4" /> Refresh
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadCampaigns(true, true)}
+            disabled={loading || retrySeconds > 0}
+            className="gap-2"
+          >
+            <RefreshCw className="h-4 w-4" /> {retrySeconds > 0 ? `Retry in ${retrySeconds}s` : 'Refresh'}
           </Button>
           <Button size="sm" onClick={openNewCampaign} className="gap-2">
             <Plus className="h-4 w-4" /> New campaign
@@ -348,7 +389,12 @@ export default function DiscountConfigPage() {
         </div>
       </div>
 
-      {error && <div role="alert" className="text-sm text-red-500">{error}</div>}
+      {error && (
+        <div role="alert" className="text-sm text-red-500">
+          {error}
+          {retrySeconds > 0 && <span> Try again in {retrySeconds}s.</span>}
+        </div>
+      )}
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {campaigns.map((campaign) => (

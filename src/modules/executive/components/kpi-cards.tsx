@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Users, Trophy, TrendingUp, DollarSign, Wallet, ShieldCheck, Headphones, AlertTriangle, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { DrillDownModal, DrillDownType } from './drill-down-modal';
+import { fetchForPolling, useAdaptivePolling } from '@/hooks/use-adaptive-polling';
 
 interface KPIData {
   activeUsers: number;
@@ -41,21 +42,16 @@ export function KPICards() {
   const [data, setData] = useState<KPIData>(defaultKPI);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchKPIs();
-    const interval = setInterval(fetchKPIs, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  async function fetchKPIs() {
+  const fetchKPIs = useCallback(async () => {
     try {
-      const res = await fetch('/api/executive/metrics');
-      if (res.ok) {
-        const json = await res.json();
-        setData({ ...defaultKPI, ...json.data });
-      }
-    } catch {} finally { setLoading(false); }
-  }
+      const res = await fetchForPolling('/api/executive/metrics');
+      const json = await res.json();
+      setData({ ...defaultKPI, ...json.data });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useAdaptivePolling(fetchKPIs, 60000);
 
   const [drillDown, setDrillDown] = useState<DrillDownType>(null);
 

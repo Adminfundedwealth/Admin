@@ -1,5 +1,4 @@
 'use client';
-import { apiFetch } from '@/lib/api/fetch';
 
 import { Suspense } from 'react';
 import { KPICards } from '@/modules/executive/components/kpi-cards';
@@ -8,7 +7,8 @@ import { OperationalAlerts } from '@/modules/executive/components/operational-al
 import { QueueCard } from '@/components/shared/queue-card';
 import { KPICard } from '@/components/shared/kpi-card';
 import { StaffPresence } from '@/components/shared/staff-presence';
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { fetchForPolling, useAdaptivePolling } from '@/hooks/use-adaptive-polling';
 
 // ---------------------------------------------------------------------------
 // Executive Command Center — One-Screen Founder View
@@ -111,21 +111,11 @@ function QueueSection() {
     risk: { count: 0, oldest: '—', avg: '—', breakdown: { critical: 0, high: 0, medium: 0, low: 0 } },
   });
 
-  useEffect(() => {
-    fetchQueues();
-    const interval = setInterval(fetchQueues, 10000);
-    return () => clearInterval(interval);
+  const fetchQueues = useCallback(async () => {
+    const res = await fetchForPolling('/api/executive/queues');
+    setQueues(await res.json());
   }, []);
-
-  async function fetchQueues() {
-    try {
-      const res = await apiFetch('/api/executive/queues');
-      if (res.ok) {
-        const data = await res.json();
-        setQueues(data);
-      }
-    } catch {}
-  }
+  useAdaptivePolling(fetchQueues, 30000);
 
   return (
     <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
@@ -185,23 +175,11 @@ function RiskHealthSection() {
     breachesToday: 0,
   });
 
-  useEffect(() => {
-    fetchRisk();
-    const interval = setInterval(fetchRisk, 30000);
-    return () => clearInterval(interval);
+  const fetchRisk = useCallback(async () => {
+    const res = await fetchForPolling('/api/executive/risk-health');
+    setRisk(await res.json());
   }, []);
-
-  async function fetchRisk() {
-    try {
-      const res = await apiFetch('/api/executive/risk-health');
-      if (res.ok) {
-        const data = await res.json();
-        setRisk(data);
-      }
-    } catch {}
-  }
-
-  const exposureColor = risk.capitalExposure < 5 ? 'text-emerald-500' : risk.capitalExposure < 15 ? 'text-amber-500' : 'text-red-500';
+  useAdaptivePolling(fetchRisk, 60000);
 
   return (
     <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
@@ -243,21 +221,12 @@ function SystemHealthBar() {
     { name: 'Jobs', status: 'healthy' },
   ]);
 
-  useEffect(() => {
-    fetchHealth();
-    const interval = setInterval(fetchHealth, 30000);
-    return () => clearInterval(interval);
+  const fetchHealth = useCallback(async () => {
+    const res = await fetchForPolling('/api/executive/system-health');
+    const data = await res.json();
+    if (data.services) setServices(data.services);
   }, []);
-
-  async function fetchHealth() {
-    try {
-      const res = await apiFetch('/api/executive/system-health');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.services) setServices(data.services);
-      }
-    } catch {}
-  }
+  useAdaptivePolling(fetchHealth, 60000);
 
   const statusDot = {
     healthy: 'bg-emerald-500',
@@ -316,21 +285,12 @@ function LifecycleEvents() {
     timestamp: string;
   }>>([]);
 
-  useEffect(() => {
-    fetchLifecycle();
-    const interval = setInterval(fetchLifecycle, 15000);
-    return () => clearInterval(interval);
+  const fetchLifecycle = useCallback(async () => {
+    const res = await fetchForPolling('/api/integration/lifecycle?hours=12');
+    const data = await res.json();
+    setEvents(data.data?.slice(0, 8) || []);
   }, []);
-
-  async function fetchLifecycle() {
-    try {
-      const res = await apiFetch('/api/integration/lifecycle?hours=12');
-      if (res.ok) {
-        const data = await res.json();
-        setEvents(data.data?.slice(0, 8) || []);
-      }
-    } catch {}
-  }
+  useAdaptivePolling(fetchLifecycle, 60000);
 
   const severityColor: Record<string, string> = {
     critical: 'border-l-red-500 bg-red-50/30 dark:bg-red-900/10',

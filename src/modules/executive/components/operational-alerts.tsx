@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
+import { fetchForPolling, useAdaptivePolling } from '@/hooks/use-adaptive-polling';
 import { AlertTriangle, Info, XCircle } from 'lucide-react';
 
 interface OperationalAlert {
@@ -61,29 +62,17 @@ const defaultSeverityConfig = severityConfig.informational;
 
 /**
  * Operational alerts shown when KPI values cross configured thresholds.
- * Displays within 10 seconds of threshold breach.
+ * Displays within 15 seconds of threshold breach.
  */
 export function OperationalAlerts() {
   const [alerts, setAlerts] = useState<OperationalAlert[]>([]);
 
-  useEffect(() => {
-    fetchAlerts();
-    // Poll every 10 seconds
-    const interval = setInterval(fetchAlerts, 10000);
-    return () => clearInterval(interval);
+  const fetchAlerts = useCallback(async () => {
+    const res = await fetchForPolling('/api/executive/alerts');
+    const json = await res.json();
+    setAlerts(json.data || []);
   }, []);
-
-  async function fetchAlerts() {
-    try {
-      const res = await fetch('/api/executive/alerts');
-      if (res.ok) {
-        const json = await res.json();
-        setAlerts(json.data || []);
-      }
-    } catch {
-      // Keep existing alerts
-    }
-  }
+  useAdaptivePolling(fetchAlerts, 15000);
 
   if (alerts.length === 0) return null;
 
