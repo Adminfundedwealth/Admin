@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/api/fetch';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { DataTable } from '@/components/shared/data-table';
 import { FilterBar, SelectFilter, TextFilter, DateRangeFilter } from '@/components/shared/filters';
@@ -109,9 +109,7 @@ export default function PurchaseOrdersPage() {
     dateTo: '',
   });
 
-  useEffect(() => { fetchOrders(); }, [filters]);
-
-  async function fetchOrders() {
+  const fetchOrders = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError('');
     try {
@@ -122,18 +120,25 @@ export default function PurchaseOrdersPage() {
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
 
-      const res = await apiFetch(`/api/purchases?${params.toString()}`);
+      const res = await apiFetch(`/api/purchases?${params.toString()}`, { signal });
       if (!res.ok) throw new Error('Failed to fetch purchase orders');
       const json = await res.json();
       setOrders(json.data || []);
       setTotalCount(json.meta?.totalCount ?? 0);
       setAnalytics(json.analytics || null);
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setError('Failed to load purchase orders.');
     } finally {
       setLoading(false);
     }
-  }
+  }, [filters]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchOrders(controller.signal);
+    return () => controller.abort();
+  }, [fetchOrders]);
 
   function clearFilters() {
     setFilters({ status: '', productType: '', search: '', dateFrom: '', dateTo: '' });

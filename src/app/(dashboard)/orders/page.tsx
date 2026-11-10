@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/api/fetch';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { DataTable } from '@/components/shared/data-table';
 import { FilterBar, SelectFilter, TextFilter, DateRangeFilter } from '@/components/shared/filters';
 import { LoadingState } from '@/components/shared/loading-state';
@@ -31,9 +31,7 @@ export default function OrdersPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [filters, setFilters] = useState({ status: '', symbol: '', orderType: '', dateFrom: new Date().toISOString().slice(0, 10), dateTo: '' });
 
-  useEffect(() => { fetchOrders(); }, [filters]);
-
-  async function fetchOrders() {
+  const fetchOrders = useCallback(async (signal?: AbortSignal) => {
     setLoading(true); setError('');
     try {
       const params = new URLSearchParams();
@@ -42,14 +40,23 @@ export default function OrdersPage() {
       if (filters.orderType) params.set('order_type', filters.orderType);
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
-      const res = await apiFetch(`/api/orders?${params.toString()}`);
+      const res = await apiFetch(`/api/orders?${params.toString()}`, { signal });
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setOrders(json.data || []);
       setTotalCount(json.meta?.totalCount ?? 0);
-    } catch { setError('Failed to load orders.'); }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setError('Failed to load orders.');
+    }
     finally { setLoading(false); }
-  }
+  }, [filters]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchOrders(controller.signal);
+    return () => controller.abort();
+  }, [fetchOrders]);
 
   if (error) return <ErrorState message={error} onRetry={fetchOrders} />;
 

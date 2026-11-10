@@ -58,24 +58,31 @@ export default function PayoutsPage() {
 
   const selectedIds = Object.keys(rowSelection).filter(k => rowSelection[k]).map(idx => payouts[parseInt(idx)]?.id).filter(Boolean);
 
-  useEffect(() => { fetchPayouts(); }, [filters]);
-
-  async function fetchPayouts() {
+  const fetchPayouts = useCallback(async (signal?: AbortSignal) => {
     setLoading(true); setError('');
     try {
       const params = new URLSearchParams();
       if (filters.status) params.set('status', filters.status);
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
-      const res = await apiFetch(`/api/payouts?${params.toString()}`);
+      const res = await apiFetch(`/api/payouts?${params.toString()}`, { signal });
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setPayouts(json.data || []);
       setTotalCount(json.meta?.totalCount ?? 0);
       setAnalytics(json.analytics || null);
-    } catch { setError('Failed to load payouts.'); }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setError('Failed to load payouts.');
+    }
     finally { setLoading(false); }
-  }
+  }, [filters]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchPayouts(controller.signal);
+    return () => controller.abort();
+  }, [fetchPayouts]);
 
   // Batch action handler
   async function handleBatchAction(actionId: string, reason?: string) {

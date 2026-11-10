@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/api/fetch';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { DataTable } from '@/components/shared/data-table';
 import { FilterBar, SelectFilter } from '@/components/shared/filters';
 import { LoadingState } from '@/components/shared/loading-state';
@@ -28,22 +28,29 @@ export default function KYCPage() {
 
   const selectedIds = Object.keys(rowSelection).filter(k => rowSelection[k]).map(idx => submissions[parseInt(idx)]?.id).filter(Boolean);
 
-  useEffect(() => { fetchKYC(); }, [filters]);
-
-  async function fetchKYC() {
+  const fetchKYC = useCallback(async (signal?: AbortSignal) => {
     setLoading(true); setError('');
     try {
       const params = new URLSearchParams();
       if (filters.status) params.set('status', filters.status);
       if (filters.overdue) params.set('overdue', filters.overdue);
-      const res = await apiFetch(`/api/kyc?${params.toString()}`);
+      const res = await apiFetch(`/api/kyc?${params.toString()}`, { signal });
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setSubmissions(json.data || []);
       setTotalCount(json.meta?.totalCount ?? 0);
-    } catch { setError('Failed to load KYC submissions.'); }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setError('Failed to load KYC submissions.');
+    }
     finally { setLoading(false); }
-  }
+  }, [filters]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchKYC(controller.signal);
+    return () => controller.abort();
+  }, [fetchKYC]);
 
   async function handleBatchAction(actionId: string, reason?: string) {
     for (const id of selectedIds) {

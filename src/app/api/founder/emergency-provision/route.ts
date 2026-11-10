@@ -147,16 +147,16 @@ export async function POST(request: NextRequest) {
       let authUserId: string | null = profileData?.clerk_id || null;
 
       if (!authUserId) {
-        const { data: authUserData } = await supabase.auth.admin.listUsers({ perPage: 1000 });
-        const matchingAuthUser = authUserData?.users?.find((u) => u.email === email.toLowerCase());
+        const { data: authUserData } = await (supabase.auth as any).admin.listUsers({ perPage: 1000 });
+        const matchingAuthUser = authUserData?.users?.find((u: any) => u.email === email.toLowerCase());
         authUserId = matchingAuthUser?.id || null;
       }
 
       if (authUserId) {
-        await supabase.auth.admin.updateUserById(authUserId, {
+        await (supabase.auth as any).admin.updateUserById(authUserId, {
           password: credentials.temporary_password,
           email_confirm: true,
-        }).catch((e) => console.error('[EmergencyProvision] Password update failed:', e));
+        }).catch((e: unknown) => console.error('[EmergencyProvision] Password update failed:', e));
       }
     } else {
       const nameParts = name.trim().split(/\s+/);
@@ -164,21 +164,21 @@ export async function POST(request: NextRequest) {
       const lastName = nameParts.slice(1).join(' ') || null;
 
       // Check for existing Supabase Auth user
-      const { data: existingAuthData } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+      const { data: existingAuthData } = await (supabase.auth as any).admin.listUsers({ perPage: 1000 });
       const existingAuthUser = existingAuthData?.users?.find(
-        (u) => u.email?.toLowerCase() === email.toLowerCase()
+        (u: any) => u.email?.toLowerCase() === email.toLowerCase()
       ) || null;
 
       let authUserId: string;
 
       if (existingAuthUser) {
         authUserId = existingAuthUser.id;
-        await supabase.auth.admin.updateUserById(authUserId, {
+        await (supabase.auth as any).admin.updateUserById(authUserId, {
           password: credentials.temporary_password,
           email_confirm: true,
         }).catch(() => {});
       } else {
-        const { data: authData, error: authCreateError } = await supabase.auth.admin.createUser({
+        const { data: authData, error: authCreateError } = await (supabase.auth as any).admin.createUser({
           email: email.toLowerCase(),
           password: credentials.temporary_password,
           email_confirm: true,
@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (userError || !newUser) {
-        if (!existingAuthUser) await supabase.auth.admin.deleteUser(authUserId).catch(() => {});
+        if (!existingAuthUser) await (supabase.auth as any).admin.deleteUser(authUserId).catch(() => {});
         return NextResponse.json(
           { error: { code: 'USER_CREATE_FAILED', message: `Failed to create user profile: ${userError?.message}` } },
           { status: 500 },

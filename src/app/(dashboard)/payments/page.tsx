@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/api/fetch';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { DataTable } from '@/components/shared/data-table';
 import { FilterBar, SelectFilter, TextFilter, DateRangeFilter } from '@/components/shared/filters';
@@ -117,9 +117,7 @@ export default function PaymentsPage() {
     dateTo: '',
   });
 
-  useEffect(() => { fetchPayments(); }, [filters]);
-
-  async function fetchPayments() {
+  const fetchPayments = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError('');
     try {
@@ -130,18 +128,25 @@ export default function PaymentsPage() {
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
 
-      const res = await apiFetch(`/api/payments?${params.toString()}`);
+      const res = await apiFetch(`/api/payments?${params.toString()}`, { signal });
       if (!res.ok) throw new Error('Failed to fetch payments');
       const json = await res.json();
       setPayments(json.data || []);
       setTotalCount(json.meta?.totalCount ?? 0);
       setAnalytics(json.analytics || null);
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setError('Failed to load payments.');
     } finally {
       setLoading(false);
     }
-  }
+  }, [filters]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchPayments(controller.signal);
+    return () => controller.abort();
+  }, [fetchPayments]);
 
   function clearFilters() {
     setFilters({ status: '', provider: '', search: '', dateFrom: '', dateTo: '' });

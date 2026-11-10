@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/api/fetch';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { DataTable } from '@/components/shared/data-table';
 import { FilterBar, SelectFilter } from '@/components/shared/filters';
 import { ExportButton } from '@/components/shared/export-button';
@@ -61,26 +61,31 @@ export default function FundedPage() {
   const [deleteModalId, setDeleteModalId] = useState<string | null>(null);
   const [deleteModalLabel, setDeleteModalLabel] = useState('');
 
-  useEffect(() => { fetchAccounts(); }, [filters]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function fetchAccounts() {
+  const fetchAccounts = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError('');
     try {
       const params = new URLSearchParams();
       if (filters.status) params.set('status', filters.status);
       if (filters.eligible) params.set('payout_eligible', filters.eligible);
-      const res = await apiFetch(`/api/funded?${params.toString()}`);
+      const res = await apiFetch(`/api/funded?${params.toString()}`, { signal });
       if (!res.ok) throw new Error('Failed to fetch');
       const json = await res.json();
       setAccounts(json.data || []);
       setTotalCount(json.meta?.totalCount ?? 0);
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setError('Failed to load funded accounts.');
     } finally {
       setLoading(false);
     }
-  }
+  }, [filters]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchAccounts(controller.signal);
+    return () => controller.abort();
+  }, [fetchAccounts]);
 
   function handleDeleteSuccess(action: 'archive' | 'permanent_delete', accountId: string) {
     setDeleteModalId(null);
