@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/api/fetch';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { DataTable } from '@/components/shared/data-table';
 import { FilterBar, SelectFilter, TextFilter, DateRangeFilter } from '@/components/shared/filters';
 import { ExportButton } from '@/components/shared/export-button';
@@ -75,9 +75,7 @@ export default function ChallengesPage() {
     .map((idx) => challenges[parseInt(idx)]?.id)
     .filter(Boolean);
 
-  useEffect(() => { fetchChallenges(); }, [filters]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function fetchChallenges() {
+  const fetchChallenges = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError('');
     try {
@@ -87,17 +85,24 @@ export default function ChallengesPage() {
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
       if (filters.user) params.set('trader_id', filters.user);
-      const res = await apiFetch(`/api/challenges?${params.toString()}`);
+      const res = await apiFetch(`/api/challenges?${params.toString()}`, { signal });
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setChallenges(json.data || []);
       setTotalCount(json.meta?.totalCount ?? 0);
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setError('Failed to load challenges.');
     } finally {
       setLoading(false);
     }
-  }
+  }, [filters]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchChallenges(controller.signal);
+    return () => controller.abort();
+  }, [fetchChallenges]);
 
   async function handleBatchAction(actionId: string, reason?: string) {
     for (const id of selectedIds) {

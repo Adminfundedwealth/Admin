@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/api/fetch';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { DataTable } from '@/components/shared/data-table';
 import { FilterBar, SelectFilter, TextFilter, DateRangeFilter } from '@/components/shared/filters';
@@ -89,11 +89,7 @@ export default function UsersPage() {
     country: '',
   });
 
-  useEffect(() => {
-    fetchUsers();
-  }, [filters]);
-
-  async function fetchUsers() {
+  const fetchUsers = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError('');
     try {
@@ -105,18 +101,25 @@ export default function UsersPage() {
       if (filters.dateTo) params.set('date_to', filters.dateTo);
       if (filters.country) params.set('country', filters.country);
 
-      const res = await apiFetch(`/api/users?${params.toString()}`);
+      const res = await apiFetch(`/api/users?${params.toString()}`, { signal });
       if (!res.ok) throw new Error('Failed to fetch users');
 
       const json = await res.json();
       setUsers(json.data || []);
       setTotalCount(json.meta?.totalCount ?? 0);
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setError('Failed to load users. Please try again.');
     } finally {
       setLoading(false);
     }
-  }
+  }, [filters, searchQuery]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchUsers(controller.signal);
+    return () => controller.abort();
+  }, [fetchUsers]);
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();

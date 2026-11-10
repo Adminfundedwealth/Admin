@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/api/fetch';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { DataTable } from '@/components/shared/data-table';
 import { FilterBar, SelectFilter, DateRangeFilter } from '@/components/shared/filters';
 import { LoadingState } from '@/components/shared/loading-state';
@@ -66,9 +66,7 @@ export default function RiskPage() {
     .map((idx) => alerts[parseInt(idx)]?.id)
     .filter(Boolean);
 
-  useEffect(() => { fetchAlerts(); }, [filters]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function fetchAlerts() {
+  const fetchAlerts = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError('');
     try {
@@ -77,17 +75,24 @@ export default function RiskPage() {
       if (filters.status) params.set('status', filters.status);
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
-      const res = await apiFetch(`/api/risk?${params.toString()}`);
+      const res = await apiFetch(`/api/risk?${params.toString()}`, { signal });
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setAlerts(json.data || []);
       setTotalCount(json.meta?.totalCount || 0);
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setError('Failed to load risk alerts.');
     } finally {
       setLoading(false);
     }
-  }
+  }, [filters]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchAlerts(controller.signal);
+    return () => controller.abort();
+  }, [fetchAlerts]);
 
   async function handleBatchAction(actionId: string, reason?: string) {
     for (const id of selectedIds) {

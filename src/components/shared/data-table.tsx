@@ -96,7 +96,7 @@ export function DataTable<TData, TValue>({
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
-    onRowSelectionChange: (updater) => {
+    onRowSelectionChange: (updater: import('@tanstack/react-table').Updater<import('@tanstack/react-table').RowSelectionState>) => {
       const newSelection = typeof updater === 'function' ? updater(rowSelection) : updater;
       setRowSelection(newSelection);
       onRowSelectionChange?.(newSelection);
@@ -270,7 +270,7 @@ export function DataTable<TData, TValue>({
                       row.getIsSelected() ? 'bg-accent/10' : 'hover:bg-muted/50'
                     )}
                     data-state={row.getIsSelected() && 'selected'}
-                    onClick={() => onRowClick?.(row.original)}
+                    onClick={() => onRowClick?.(row.original as TData)}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <td key={cell.id} className={cn('px-3 align-middle whitespace-nowrap', rowHeightClass)}>
@@ -281,7 +281,7 @@ export function DataTable<TData, TValue>({
                     {enableHoverActions && hoverActions && (
                       <td className={cn('px-2 align-middle', rowHeightClass)}>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 justify-end">
-                          {hoverActions(row.original).slice(0, 3).map((action, idx) => {
+                          {hoverActions(row.original as TData).slice(0, 3).map((action, idx) => {
                             const Icon = action.icon;
                             return (
                               <button

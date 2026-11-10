@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/api/fetch';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { DataTable } from '@/components/shared/data-table';
 import { FilterBar, SelectFilter, TextFilter, DateRangeFilter, NumberRangeFilter } from '@/components/shared/filters';
 import { ExportButton } from '@/components/shared/export-button';
@@ -32,9 +32,7 @@ export default function TradesPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [filters, setFilters] = useState({ symbol: '', direction: '', dateFrom: '', dateTo: '', pnlMin: '', pnlMax: '' });
 
-  useEffect(() => { fetchTrades(); }, [filters]);
-
-  async function fetchTrades() {
+  const fetchTrades = useCallback(async (signal?: AbortSignal) => {
     setLoading(true); setError('');
     try {
       const params = new URLSearchParams();
@@ -44,14 +42,23 @@ export default function TradesPage() {
       if (filters.dateTo) params.set('date_to', filters.dateTo);
       if (filters.pnlMin) params.set('pnl_min', filters.pnlMin);
       if (filters.pnlMax) params.set('pnl_max', filters.pnlMax);
-      const res = await apiFetch(`/api/trades?${params.toString()}`);
+      const res = await apiFetch(`/api/trades?${params.toString()}`, { signal });
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setTrades(json.data || []);
       setTotalCount(json.meta?.totalCount ?? 0);
-    } catch { setError('Failed to load trades.'); }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setError('Failed to load trades.');
+    }
     finally { setLoading(false); }
-  }
+  }, [filters]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchTrades(controller.signal);
+    return () => controller.abort();
+  }, [fetchTrades]);
 
   if (error) return <ErrorState message={error} onRetry={fetchTrades} />;
 

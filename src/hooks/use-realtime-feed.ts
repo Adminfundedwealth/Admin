@@ -66,7 +66,7 @@ interface UseRealtimeFeedReturn {
  * Falls back to polling if realtime unavailable.
  */
 export function useRealtimeFeed(options: UseRealtimeFeedOptions = {}): UseRealtimeFeedReturn {
-  const { maxEvents = 50, batchSize = 25, reconnectInterval = 5000 } = options;
+  const { maxEvents: _maxEvents = 50, batchSize = 25, reconnectInterval = 5000 } = options;
 
   const [events, setEvents] = useState<FeedEvent[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
@@ -76,6 +76,7 @@ export function useRealtimeFeed(options: UseRealtimeFeedOptions = {}): UseRealti
 
   const reconnectTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const isConnecting = useRef(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // --- Fetch initial events ---
   const fetchEvents = useCallback(async (pageNum: number) => {
@@ -112,51 +113,77 @@ export function useRealtimeFeed(options: UseRealtimeFeedOptions = {}): UseRealti
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'payout_requests' },
-          () => { fetchEvents(1); }
+          () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => fetchEvents(1), 500);
+          }
         )
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'kyc_submissions' },
-          () => { fetchEvents(1); }
+          () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => fetchEvents(1), 500);
+          }
         )
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'risk_alerts' },
-          () => { fetchEvents(1); }
+          () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => fetchEvents(1), 500);
+          }
         )
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'support_tickets' },
-          () => { fetchEvents(1); }
+          () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => fetchEvents(1), 500);
+          }
         )
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'users' },
-          () => { fetchEvents(1); }
+          () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => fetchEvents(1), 500);
+          }
         )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'provisioning_logs' },
-          () => { fetchEvents(1); }
+          () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => fetchEvents(1), 500);
+          }
         )
         .on(
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'challenge_accounts' },
-          () => { fetchEvents(1); }
+          () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => fetchEvents(1), 500);
+          }
         )
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'notifications' },
-          () => { fetchEvents(1); }
+          () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => fetchEvents(1), 500);
+          }
         )
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
+            isConnecting.current = false;
             setConnectionStatus('connected');
             if (reconnectTimer.current) {
               clearInterval(reconnectTimer.current);
               reconnectTimer.current = null;
             }
           } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+            isConnecting.current = false;
             setConnectionStatus('disconnected');
             startReconnect();
           }
@@ -168,10 +195,8 @@ export function useRealtimeFeed(options: UseRealtimeFeedOptions = {}): UseRealti
     } catch {
       setConnectionStatus('disconnected');
       startReconnect();
-    } finally {
-      isConnecting.current = false;
     }
-  }, [fetchEvents]);
+  }, [fetchEvents]); // eslint-disable-line react-hooks/exhaustive-deps -- startReconnect is defined after connect; circular dep intentional
 
   // --- Reconnect logic ---
   const startReconnect = useCallback(() => {

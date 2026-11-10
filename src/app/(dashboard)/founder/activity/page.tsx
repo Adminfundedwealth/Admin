@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch, readApiJson } from '@/lib/api/fetch';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/shared/loading-state';
@@ -51,51 +51,91 @@ export default function StaffActivityPage() {
   const [filter, setFilter] = useState('all');
   const [totalCount, setTotalCount] = useState(0);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const fetchActivity = useCallback(async () => {
+    // Abort any in-flight request before starting a new one
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     setError('');
-    try {
-      const params = new URLSearchParams();
-      if (filter !== 'all') params.set('filter', filter);
-      const res = await apiFetch(`/api/founder/activity?${params.toString()}`);
-      let json: Record<string, unknown>;
+
+    // Retry with exponential backoff on HTTP 429
+    const maxRetries = 3;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        json = await readApiJson(res);
-      } catch (parseError) {
-        if (res.ok) throw parseError;
-        throw new Error(`Activity request failed (${res.status}): ${
-          parseError instanceof Error ? parseError.message : 'The response could not be parsed'
-        }`);
-      }
+        const params = new URLSearchParams();
+        if (filter !== 'all') params.set('filter', filter);
+        const res = await apiFetch(`/api/founder/activity?${params.toString()}`, {
+          signal: controller.signal,
+        });
 
-      if (!res.ok) {
-        const apiError = json.error;
-        const message = apiError && typeof apiError === 'object'
-          ? (apiError as Record<string, unknown>).message
+        // On 429, wait and retry (up to maxRetries times)
+        if (res.status === 429 && attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, delay);
+            controller.signal.addEventListener('abort', () => {
+              clearTimeout(timer);
+              reject(new DOMException('Aborted', 'AbortError'));
+            });
+          });
+          continue;
+        }
+
+        let json: Record<string, unknown>;
+        try {
+          json = await readApiJson(res);
+        } catch (parseError) {
+          if (res.ok) throw parseError;
+          throw new Error(`Activity request failed (${res.status}): ${
+            parseError instanceof Error ? parseError.message : 'The response could not be parsed'
+          }`);
+        }
+
+        if (!res.ok) {
+          const apiError = json.error;
+          const message = apiError && typeof apiError === 'object'
+            ? (apiError as Record<string, unknown>).message
+            : null;
+          throw new Error(typeof message === 'string' ? message : `Activity request failed (${res.status})`);
+        }
+
+        if (!Array.isArray(json.data) || !json.data.every(isActivityEntry)) {
+          throw new Error('The activity service returned an invalid response');
+        }
+
+        setActivities(json.data);
+        const meta = json.meta;
+        const count = meta && typeof meta === 'object'
+          ? (meta as Record<string, unknown>).totalCount
           : null;
-        throw new Error(typeof message === 'string' ? message : `Activity request failed (${res.status})`);
+        setTotalCount(typeof count === 'number' ? count : 0);
+        setLoading(false);
+        return; // success — exit retry loop
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return; // request was cancelled — do not update state
+        }
+        if (attempt === maxRetries) {
+          console.error('Failed to load activity feed:', err);
+          setError(err instanceof Error ? err.message : 'Failed to load activity feed.');
+          setLoading(false);
+        }
+        // Otherwise loop continues with next retry attempt
       }
-
-      if (!Array.isArray(json.data) || !json.data.every(isActivityEntry)) {
-        throw new Error('The activity service returned an invalid response');
-      }
-
-      setActivities(json.data);
-      const meta = json.meta;
-      const totalCount = meta && typeof meta === 'object'
-        ? (meta as Record<string, unknown>).totalCount
-        : null;
-      setTotalCount(typeof totalCount === 'number' ? totalCount : 0);
-    } catch (error) {
-      console.error('Failed to load activity feed:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load activity feed.');
-    } finally {
-      setLoading(false);
     }
   }, [filter]);
 
   useEffect(() => {
     fetchActivity();
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, [fetchActivity]);
 
   function formatTimestamp(ts: string): string {
