@@ -6,6 +6,7 @@
 
 # testing
 /coverage
+/tests/e2e/.auth/
 
 # next.js
 /.next/
@@ -25,6 +26,7 @@ yarn-error.log*
 
 # local env files
 .env*.local
+.env*.backup
 
 # vercel
 .vercel
