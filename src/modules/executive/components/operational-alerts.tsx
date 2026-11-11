@@ -72,7 +72,7 @@ export function OperationalAlerts() {
     const json = await res.json();
     setAlerts(json.data || []);
   }, []);
-  useAdaptivePolling(fetchAlerts, 15000);
+  useAdaptivePolling(fetchAlerts, 15000, 3000); // stagger: 3s after mount
 
   if (alerts.length === 0) return null;
 

@@ -115,7 +115,7 @@ function QueueSection() {
     const res = await fetchForPolling('/api/executive/queues');
     setQueues(await res.json());
   }, []);
-  useAdaptivePolling(fetchQueues, 30000);
+  useAdaptivePolling(fetchQueues, 30000, 500); // stagger: 500ms after mount
 
   return (
     <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
@@ -179,7 +179,7 @@ function RiskHealthSection() {
     const res = await fetchForPolling('/api/executive/risk-health');
     setRisk(await res.json());
   }, []);
-  useAdaptivePolling(fetchRisk, 60000);
+  useAdaptivePolling(fetchRisk, 60000, 1000); // stagger: 1s after mount
 
   return (
     <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
@@ -226,7 +226,7 @@ function SystemHealthBar() {
     const data = await res.json();
     if (data.services) setServices(data.services);
   }, []);
-  useAdaptivePolling(fetchHealth, 60000);
+  useAdaptivePolling(fetchHealth, 60000, 1500); // stagger: 1.5s after mount
 
   const statusDot = {
     healthy: 'bg-emerald-500',
@@ -290,7 +290,7 @@ function LifecycleEvents() {
     const data = await res.json();
     setEvents(data.data?.slice(0, 8) || []);
   }, []);
-  useAdaptivePolling(fetchLifecycle, 60000);
+  useAdaptivePolling(fetchLifecycle, 60000, 2000); // stagger: 2s after mount
 
   const severityColor: Record<string, string> = {
     critical: 'border-l-red-500 bg-red-50/30 dark:bg-red-900/10',

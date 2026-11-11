@@ -54,7 +54,7 @@ export async function fetchForPolling(path: string): Promise<Response> {
   return response;
 }
 
-export function useAdaptivePolling(callback: () => Promise<void>, intervalMs: number): void {
+export function useAdaptivePolling(callback: () => Promise<void>, intervalMs: number, initialDelayMs = 0): void {
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
 
@@ -122,7 +122,12 @@ export function useAdaptivePolling(callback: () => Promise<void>, intervalMs: nu
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    void poll();
+    // Stagger initial poll by initialDelayMs to prevent burst on mount
+    if (initialDelayMs > 0) {
+      schedule(initialDelayMs);
+    } else {
+      void poll();
+    }
 
     return () => {
       stopped = true;

@@ -51,7 +51,7 @@ export function KPICards() {
       setLoading(false);
     }
   }, []);
-  useAdaptivePolling(fetchKPIs, 60000);
+  useAdaptivePolling(fetchKPIs, 60000, 200); // slight stagger: 200ms after mount
 
   const [drillDown, setDrillDown] = useState<DrillDownType>(null);
 

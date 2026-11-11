@@ -50,7 +50,7 @@ export function StaffPresence() {
       setLoading(false);
     }
   }, []);
-  useAdaptivePolling(fetchPresence, 60000);
+  useAdaptivePolling(fetchPresence, 60000, 2500); // stagger: 2.5s after mount
 
   return (
     <div className="relative">
