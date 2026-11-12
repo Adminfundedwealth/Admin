@@ -87,6 +87,7 @@ export default function PaymentDetailPage() {
 
   async function fetchPayment() {
     setLoading(true);
+    setError('');
     try {
       const res = await fetch(`/api/payments/${paymentId}`);
       if (!res.ok) throw new Error('Failed');
@@ -209,7 +210,7 @@ export default function PaymentDetailPage() {
             <div className="flex justify-between"><span className="text-muted-foreground">Provider Fee</span><span>{formatCurrency(payment.fee, payment.currency)}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Net Amount</span><span className="font-medium text-green-600">{formatCurrency(payment.net_amount, payment.currency)}</span></div>
             {payment.payment_method_type && (
-              <div className="flex justify-between"><span className="text-muted-foreground">Payment Method</span><span>{payment.payment_method_type} •••• {payment.payment_method_last4}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Payment Method</span><span>{payment.payment_method_type}{payment.payment_method_last4 ? ` •••• ${payment.payment_method_last4}` : ''}</span></div>
             )}
             {payment.receipt_url && (
               <div className="flex justify-between"><span className="text-muted-foreground">Receipt</span><a href={payment.receipt_url} target="_blank" rel="noopener" className="text-primary text-xs hover:underline">View Receipt ↗</a></div>
