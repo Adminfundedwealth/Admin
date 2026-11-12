@@ -33,6 +33,25 @@ export async function GET(request: NextRequest) {
     const page = parseInt(params.get('page') || '1', 10);
     const pageSize = Math.min(parseInt(params.get('page_size') || '20', 10), 100);
     const offset = (page - 1) * pageSize;
+    let matchingEmailUserIds: string[] = [];
+
+    if (search && search.length >= 3 && search.includes('@')) {
+      const { data: emailUsers, error: emailSearchError } = await supabase
+        .from('users')
+        .select('id')
+        .ilike('email', `%${search}%`);
+
+      if (emailSearchError) {
+        return NextResponse.json(
+          { error: { code: 'QUERY_ERROR', message: 'Failed to search payment customers.' } },
+          { status: 500 },
+        );
+      }
+
+      matchingEmailUserIds = Array.from(
+        new Set((emailUsers || []).map((user: { id: string }) => user.id).filter(Boolean)),
+      );
+    }
 
     // Query public.orders as the primary payment record
     let query = supabase
@@ -68,9 +87,12 @@ export async function GET(request: NextRequest) {
     if (dateFrom) query = query.gte('created_at', dateFrom);
     if (dateTo) query = query.lte('created_at', dateTo + 'T23:59:59.999Z');
     if (search && search.length >= 3) {
-      // Live searchable columns: id, user_id, utr_reference
+      // Include order identifiers and customer emails linked through users.id.
+      const emailUserFilter = matchingEmailUserIds.length > 0
+        ? `,user_id.in.(${matchingEmailUserIds.join(',')})`
+        : '';
       query = query.or(
-        `utr_reference.ilike.%${search}%,id.eq.${search},user_id.eq.${search}`
+        `utr_reference.ilike.%${search}%,id.eq.${search},user_id.eq.${search}${emailUserFilter}`
       );
     }
 
