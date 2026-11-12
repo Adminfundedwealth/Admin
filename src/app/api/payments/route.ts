@@ -11,11 +11,10 @@ import { sanitizeSearchInput } from '@/lib/security/sanitize';
  *
  * LIVE SCHEMA (verified):
  *   orders: id(text), user_id, amount, account_size, plan_type, status, payment_method, utr_reference, created_at, updated_at
- *   manual_payments: id(int), order_id(int), user_id(int), payment_method, amount, currency, upi_id, utr, reference, proof_url, status, rejection_reason, reviewed_by, reviewed_at, created_at, updated_at
+ *   manual_payments: id(int), order_id(text), user_id(text), payment_method, amount, currency, upi_id, utr, reference, proof_url, status, rejection_reason, reviewed_by, reviewed_at, created_at, updated_at
  *
  * IMPORTANT: There is NO separate payments table. Orders ARE the payment ledger.
- * manual_payments.order_id is integer vs orders.id is text — join may not work directly.
- * We query manual_payments independently and match where possible.
+ * manual_payments.order_id matches orders.id as text.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -46,8 +45,12 @@ export async function GET(request: NextRequest) {
         query = query.in('status', ['completed', 'active', 'paid']);
       } else if (status === 'failed') {
         query = query.eq('status', 'failed');
-      } else if (status === 'pending' || status === 'processing') {
-        query = query.in('status', ['pending', 'awaiting_payment', 'processing']);
+      } else if (status === 'pending') {
+        query = query.in('status', ['pending', 'awaiting_payment', 'processing', 'pending_review']);
+      } else if (status === 'pending_review') {
+        query = query.eq('status', 'pending_review');
+      } else if (status === 'processing') {
+        query = query.eq('status', 'processing');
       } else if (status === 'refunded') {
         query = query.eq('status', 'refunded');
       } else {
@@ -57,7 +60,9 @@ export async function GET(request: NextRequest) {
 
     // Filter by payment method (live column: payment_method)
     if (provider) {
-      query = query.eq('payment_method', provider);
+      query = provider === 'manual'
+        ? query.in('payment_method', ['manual', 'upi', 'upi_manual', 'bank_transfer', 'bank_manual'])
+        : query.eq('payment_method', provider);
     }
 
     if (dateFrom) query = query.gte('created_at', dateFrom);
@@ -84,23 +89,34 @@ export async function GET(request: NextRequest) {
     const userIds = Array.from(new Set((data || []).map((r: any) => r.user_id).filter(Boolean)));
     let userMap: Record<string, string> = {};
     if (userIds.length > 0) {
-      const { data: users } = await supabase.from('users').select('id, email').in('id', userIds);
+      const { data: users, error: usersError } = await supabase.from('users').select('id, email').in('id', userIds);
+      if (usersError) {
+        return NextResponse.json(
+          { error: { code: 'QUERY_ERROR', message: 'Failed to load payment customer details.' } },
+          { status: 500 },
+        );
+      }
       userMap = (users || []).reduce((m: Record<string, string>, u: any) => { m[u.id] = u.email; return m; }, {});
     }
 
-    // Attempt to fetch manual_payments linked to these orders.
-    // LIMITATION: manual_payments.order_id is integer, orders.id is text.
-    // This query may return empty if Supabase cannot cast. That's acceptable.
+    // Fetch manual_payments linked to these orders.
     const orderIds = (data || []).map((r: any) => r.id).filter(Boolean);
     let manualMap: Record<string, any> = {};
     if (orderIds.length > 0) {
-      const { data: manuals } = await supabase
+      const { data: manuals, error: manualsError } = await supabase
         .from('manual_payments')
-        .select('order_id, status, reviewed_at, utr, amount')
-        .in('order_id', orderIds);
+        .select('id, order_id, status, reviewed_at, utr, amount')
+        .in('order_id', orderIds)
+        .order('created_at', { ascending: false });
+      if (manualsError) {
+        return NextResponse.json(
+          { error: { code: 'QUERY_ERROR', message: 'Failed to load linked manual payment records.' } },
+          { status: 500 },
+        );
+      }
       if (manuals) {
         manualMap = manuals.reduce((m: Record<string, any>, mp: any) => {
-          m[String(mp.order_id)] = mp;
+          if (!m[String(mp.order_id)]) m[String(mp.order_id)] = mp;
           return m;
         }, {});
       }
@@ -110,14 +126,15 @@ export async function GET(request: NextRequest) {
     const mapped = (data || []).map((row: any) => {
       const paymentMethod = row.payment_method || 'unknown';
       const manual = manualMap[row.id] || manualMap[String(row.id)] || null;
-      const isManual = paymentMethod === 'bank_transfer' || paymentMethod === 'manual' || paymentMethod === 'upi' || !!manual;
+      const isManual = ['bank_transfer', 'manual', 'upi', 'upi_manual', 'bank_manual'].includes(paymentMethod) || !!manual;
       const orderStatus = row.status;
 
       // Map order status to payment-style status
       let paymentStatus = 'pending';
-      if (['completed', 'active', 'paid'].includes(orderStatus)) paymentStatus = 'succeeded';
+      if (['confirmed', 'completed', 'active', 'paid'].includes(orderStatus)) paymentStatus = 'succeeded';
       else if (orderStatus === 'failed') paymentStatus = 'failed';
       else if (orderStatus === 'refunded') paymentStatus = 'refunded';
+      else if (orderStatus === 'pending_review') paymentStatus = 'pending_review';
       else if (['pending', 'awaiting_payment', 'processing'].includes(orderStatus)) paymentStatus = 'pending';
 
       return {
@@ -127,7 +144,7 @@ export async function GET(request: NextRequest) {
         purchase_order_id: row.id,
         order_number: row.id?.slice(0, 8)?.toUpperCase() || '',
         provider: paymentMethod,
-        provider_transaction_id: row.utr_reference || null,
+        provider_transaction_id: row.utr_reference || manual?.utr || null,
         amount: row.amount ?? 0,
         currency: 'INR', // Not in live orders schema — platform default
         fee: 0,
@@ -135,6 +152,7 @@ export async function GET(request: NextRequest) {
         status: paymentStatus,
         payment_method_type: paymentMethod,
         is_manual: isManual,
+        manual_payment_id: manual?.id ?? null,
         // Manual payment supplement (live column names)
         manual_payment_status: manual?.status || null,
         manual_payment_reviewed_at: manual?.reviewed_at || null,

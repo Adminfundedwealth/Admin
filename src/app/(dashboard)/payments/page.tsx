@@ -29,6 +29,8 @@ interface PaymentRow {
   payment_method_type: string | null;
   payment_method_last4: string | null;
   is_manual: boolean;
+  manual_payment_status: string | null;
+  manual_payment_utr: string | null;
   created_at: string;
 }
 
@@ -47,6 +49,7 @@ const statusColors: Record<string, string> = {
   refunded: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
   partially_refunded: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
   disputed: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
+  pending_review: 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-300',
 };
 
 const columns: ColumnDef<PaymentRow, any>[] = [
@@ -60,6 +63,13 @@ const columns: ColumnDef<PaymentRow, any>[] = [
         {row.original.provider}
         {row.original.is_manual && <span className="ml-1 text-xs text-muted-foreground">(manual)</span>}
       </span>
+    ),
+  },
+  {
+    accessorKey: 'provider_transaction_id',
+    header: 'UTR / Reference',
+    cell: ({ row }) => (
+      <span className="font-mono text-xs">{row.original.provider_transaction_id || row.original.manual_payment_utr || '—'}</span>
     ),
   },
   {
@@ -214,6 +224,7 @@ export default function PaymentsPage() {
           onChange={(v) => setFilters((f) => ({ ...f, status: v }))}
           options={[
             { label: 'Pending', value: 'pending' },
+            { label: 'Review required', value: 'pending_review' },
             { label: 'Processing', value: 'processing' },
             { label: 'Succeeded', value: 'succeeded' },
             { label: 'Failed', value: 'failed' },

@@ -10,7 +10,7 @@ import { requirePermissionInHandler } from '@/lib/security/require-auth';
  *
  * LIVE SCHEMA: orders IS the payment record. No separate payments table.
  * manual_payments uses `utr` (not utr_reference), `reviewed_at` (not verified_at).
- * manual_payments.order_id is integer — may not directly match orders.id (text).
+ * manual_payments.order_id is text and matches orders.id.
  */
 export async function GET(
   request: NextRequest,
@@ -44,14 +44,20 @@ export async function GET(
       .eq('id', order.user_id)
       .single();
 
-    // Fetch manual_payment (LIMITATION: order_id type mismatch possible)
+    // Fetch the manual payment linked to this order.
     let manualPayment = null;
-    const { data: manuals } = await supabase
+    const { data: manuals, error: manualsError } = await supabase
       .from('manual_payments')
       .select('*')
       .eq('order_id', orderId)
       .order('created_at', { ascending: false })
       .limit(1);
+    if (manualsError) {
+      return NextResponse.json(
+        { error: { code: 'QUERY_ERROR', message: 'Failed to load the linked manual payment.' } },
+        { status: 500 },
+      );
+    }
     if (manuals && manuals.length > 0) {
       const mp = manuals[0];
       manualPayment = {
@@ -104,7 +110,7 @@ export async function GET(
     const paymentMethod = order.payment_method || 'unknown';
     const orderStatus = order.status;
     let paymentStatus = 'pending';
-    if (['completed', 'active', 'paid'].includes(orderStatus)) paymentStatus = 'succeeded';
+    if (['confirmed', 'completed', 'active', 'paid'].includes(orderStatus)) paymentStatus = 'succeeded';
     else if (orderStatus === 'failed') paymentStatus = 'failed';
     else if (orderStatus === 'refunded') paymentStatus = 'refunded';
 
@@ -122,8 +128,11 @@ export async function GET(
           currency: 'INR',
           status: paymentStatus,
           payment_method_type: paymentMethod,
-          is_manual: paymentMethod === 'bank_transfer' || paymentMethod === 'manual' || paymentMethod === 'upi' || !!manualPayment,
+          is_manual: ['bank_transfer', 'manual', 'upi', 'upi_manual', 'bank_manual'].includes(paymentMethod) || !!manualPayment,
           utr_reference: order.utr_reference || manualPayment?.utr || null,
+          order_status: order.status,
+          plan_type: order.plan_type || null,
+          account_size: order.account_size || null,
           created_at: order.created_at,
           updated_at: order.updated_at || order.created_at,
         },

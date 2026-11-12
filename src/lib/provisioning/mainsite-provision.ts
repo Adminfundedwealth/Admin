@@ -139,26 +139,32 @@ const LOCAL_CATALOG: CatalogProduct[] = [
   },
 ];
 
+const PRODUCTION_API_BASE = 'https://fundedwealth-api-production.up.railway.app';
+
+function normalizeMainSiteApiBase(value: string): string {
+  return value
+    .replace(/^(https?:\/\/)api\.fundedwealth(?:11)?\.com(?=[:/]|$)/i, '$1fundedwealth-api-production.up.railway.app')
+    .replace(/\/+$/, '');
+}
+
 /**
  * Resolve the Main Website API base URL.
  * Priority: MAINSITE_API_URL env → MAINSITE_WEBHOOK_URL origin → production default.
  */
 export function mainSiteApiBase(): string {
   const explicit = process.env.MAINSITE_API_URL;
-  if (explicit) return explicit.replace(/\/+$/, '');
+  if (explicit) return normalizeMainSiteApiBase(explicit);
   const webhook = process.env.MAINSITE_WEBHOOK_URL;
   if (webhook) {
     try {
       const origin = new URL(webhook).origin;
-      if (!origin.includes('railway') && !origin.includes('api')) {
-        return 'https://api.fundedwealth.com';
-      }
-      return origin;
+      if (!origin.includes('railway') && !origin.includes('api')) return PRODUCTION_API_BASE;
+      return normalizeMainSiteApiBase(origin);
     } catch {
-      /* fall through */
+      return PRODUCTION_API_BASE;
     }
   }
-  return 'https://api.fundedwealth.com';
+  return PRODUCTION_API_BASE;
 }
 
 function internalHeaders(): Record<string, string> {
@@ -176,6 +182,35 @@ export class MainSiteError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+export async function reviewManualPayment(input: {
+  paymentId: number;
+  action: 'approve' | 'reject';
+  rejectionReason?: string;
+}): Promise<{ success: boolean; message?: string; alreadyApproved?: boolean }> {
+  const endpoint = input.action === 'approve' ? 'approve' : 'reject';
+  const res = await fetch(
+    `${mainSiteApiBase()}/api/payments/admin/${endpoint}-payment/${input.paymentId}`,
+    {
+      method: 'POST',
+      headers: internalHeaders(),
+      cache: 'no-store',
+      body: JSON.stringify(
+        input.action === 'reject' ? { rejectionReason: input.rejectionReason } : {},
+      ),
+    },
+  );
+  const json = await res.json().catch(() => ({}));
+
+  if (!res.ok || json?.success === false) {
+    throw new MainSiteError(
+      json?.message || `Payment review failed (${res.status})`,
+      res.status || 500,
+    );
+  }
+
+  return json;
 }
 
 /**
