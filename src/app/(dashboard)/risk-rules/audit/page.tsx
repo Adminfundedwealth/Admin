@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { apiFetch } from '@/lib/api/fetch';
 import { FileText, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ErrorState } from '@/components/shared/error-state';
 
 interface AuditEntry {
   plan: string;
@@ -26,26 +27,44 @@ const PLAN_COLORS: Record<string, string> = {
 export default function RiskRulesAuditPage() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [planFilter, setPlanFilter] = useState<string>('');
 
   async function load() {
     setLoading(true);
+    setError('');
     try {
       const results = await Promise.allSettled(
-        PLANS.map(plan =>
-          apiFetch(`/api/risk-rules/${plan}/audit?limit=50`)
-            .then(r => r.ok ? r.json() : { audit: [] })
-            .then(j => (j.audit || []).map((e: Omit<AuditEntry, 'plan'>) => ({ ...e, plan })))
-        )
+        PLANS.map(async plan => {
+          const response = await apiFetch(`/api/risk-rules/${plan}/audit?limit=50`);
+          if (!response.ok) {
+            throw new Error(`Request failed with status ${response.status}`);
+          }
+          const json = await response.json();
+          return (json.audit || []).map((entry: Omit<AuditEntry, 'plan'>) => ({ ...entry, plan }));
+        })
       );
       const all: AuditEntry[] = [];
-      for (const r of results) {
-        if (r.status === 'fulfilled') all.push(...r.value);
-      }
+      const failedPlans: string[] = [];
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          all.push(...result.value);
+        } else {
+          failedPlans.push(PLAN_LABELS[PLANS[index]]);
+          console.error(`[risk-rules/audit] Failed to load ${PLANS[index]} audit history:`, result.reason);
+        }
+      });
       all.sort((a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime());
       setEntries(all);
-    } catch {}
-    setLoading(false);
+      if (failedPlans.length > 0) {
+        setError(`Failed to load audit history for: ${failedPlans.join(', ')}.`);
+      }
+    } catch (loadError) {
+      console.error('[risk-rules/audit] Failed to load audit history:', loadError);
+      setError('Failed to load audit history.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { load(); }, []);
@@ -81,6 +100,8 @@ export default function RiskRulesAuditPage() {
       {/* Table */}
       {loading ? (
         <div className="text-center py-8 text-muted-foreground text-[13px]">Loading audit logs…</div>
+      ) : error ? (
+        <ErrorState message={error} onRetry={() => void load()} />
       ) : filtered.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground text-[13px]">No changes recorded yet.</div>
       ) : (
