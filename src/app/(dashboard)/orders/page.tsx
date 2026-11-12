@@ -24,7 +24,7 @@ interface TradingAccount {
 
 interface TradingAccountsResponse {
   data: TradingAccount[];
-  meta: { totalCount: number; totalPages: number };
+  meta: { totalCount: number };
 }
 
 interface Filters {
@@ -65,12 +65,7 @@ function isTradingAccountsResponse(value: unknown): value is TradingAccountsResp
   if (!Array.isArray(response.data) || !response.data.every(isTradingAccount)) return false;
   if (!response.meta || typeof response.meta !== 'object' || Array.isArray(response.meta)) return false;
   const meta = response.meta as Record<string, unknown>;
-  return (
-    typeof meta.totalCount === 'number' &&
-    Number.isFinite(meta.totalCount) &&
-    typeof meta.totalPages === 'number' &&
-    Number.isSafeInteger(meta.totalPages)
-  );
+  return typeof meta.totalCount === 'number' && Number.isFinite(meta.totalCount);
 }
 
 function formatAmount(value: number | string | null): string {
@@ -105,45 +100,35 @@ export default function OrdersPage() {
   const [error, setError] = useState('');
   const [totalCount, setTotalCount] = useState(0);
   const [filters, setFilters] = useState(initialFilters);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
 
   const fetchAccounts = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({ page: '1', page_size: '100' });
+      const params = new URLSearchParams({ page: String(page + 1), page_size: String(pageSize) });
       if (filters.status) params.set('status', filters.status);
       if (filters.accountCode) params.set('account_code', filters.accountCode);
       if (filters.dateFrom) params.set('date_from', filters.dateFrom);
       if (filters.dateTo) params.set('date_to', filters.dateTo);
 
-      const firstResponse = await apiFetch(`/api/orders?${params.toString()}`, { signal });
-      if (!firstResponse.ok) throw new Error(`Failed to load trading accounts (${firstResponse.status}).`);
-      const firstPayload: unknown = await firstResponse.json();
-      if (!isTradingAccountsResponse(firstPayload)) {
+      const response = await apiFetch(`/api/orders?${params.toString()}`, { signal });
+      if (!response.ok) throw new Error(`Failed to load trading accounts (${response.status}).`);
+      const payload: unknown = await response.json();
+      if (!isTradingAccountsResponse(payload)) {
         throw new Error('The trading account service returned an invalid response.');
       }
 
-      const allAccounts = [...firstPayload.data];
-      for (let page = 2; page <= firstPayload.meta.totalPages; page += 1) {
-        params.set('page', String(page));
-        const response = await apiFetch(`/api/orders?${params.toString()}`, { signal });
-        if (!response.ok) throw new Error(`Failed to load trading accounts (${response.status}).`);
-        const payload: unknown = await response.json();
-        if (!isTradingAccountsResponse(payload)) {
-          throw new Error('The trading account service returned an invalid response.');
-        }
-        allAccounts.push(...payload.data);
-      }
-
-      setAccounts(allAccounts);
-      setTotalCount(firstPayload.meta.totalCount);
+      setAccounts(payload.data);
+      setTotalCount(payload.meta.totalCount);
     } catch (fetchError) {
       if (fetchError instanceof DOMException && fetchError.name === 'AbortError') return;
       setError(fetchError instanceof Error ? fetchError.message : 'Failed to load trading accounts.');
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [filters]);
+  }, [filters, page, pageSize]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -152,6 +137,7 @@ export default function OrdersPage() {
   }, [fetchAccounts]);
 
   function updateFilters(update: (current: Filters) => Filters) {
+    setPage(0);
     setFilters(update);
   }
 
@@ -169,7 +155,24 @@ export default function OrdersPage() {
         <DateRangeFilter label="Created" from={filters.dateFrom} to={filters.dateTo} onFromChange={(value) => updateFilters(current => ({ ...current, dateFrom: value }))} onToChange={(value) => updateFilters(current => ({ ...current, dateTo: value }))} />
       </FilterBar>
       {loading ? <LoadingState rows={10} /> : accounts.length === 0 ? <EmptyState message="No trading accounts found for the selected filters." /> : (
-        <DataTable columns={columns} data={accounts} tableId="trading-accounts" pageSize={50} pageSizeOptions={[10, 20, 50, 100]} totalCount={totalCount} />
+        <DataTable
+          columns={columns}
+          data={accounts}
+          tableId="trading-accounts"
+          pageSize={pageSize}
+          pageSizeOptions={[10, 20, 50, 100]}
+          totalCount={totalCount}
+          serverPagination={{
+            pageIndex: page,
+            pageSize,
+            pageCount: Math.max(1, Math.ceil(totalCount / pageSize)),
+            onPageIndexChange: setPage,
+            onPageSizeChange: (size) => {
+              setPage(0);
+              setPageSize(size);
+            },
+          }}
+        />
       )}
     </div>
   );

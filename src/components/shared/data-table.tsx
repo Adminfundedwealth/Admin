@@ -13,6 +13,7 @@ import {
   type ColumnFiltersState,
   type RowSelectionState,
   type VisibilityState,
+  type PaginationState,
 } from '@tanstack/react-table';
 import { Button } from '@/components/ui/button';
 import { DensityControl, useDensity } from './density-control';
@@ -46,6 +47,13 @@ interface DataTableProps<TData, TValue> {
   onRowClick?: (row: TData) => void;
   totalCount?: number;
   isLoading?: boolean;
+  serverPagination?: {
+    pageIndex: number;
+    pageSize: number;
+    pageCount: number;
+    onPageIndexChange: (pageIndex: number) => void;
+    onPageSizeChange: (pageSize: number) => void;
+  };
   // Enhanced features
   enableStickyHeader?: boolean;
   enableHoverActions?: boolean;
@@ -73,6 +81,7 @@ export function DataTable<TData, TValue>({
   onRowClick,
   totalCount,
   isLoading = false,
+  serverPagination,
   enableStickyHeader = true,
   enableHoverActions = true,
   hoverActions,
@@ -88,14 +97,30 @@ export function DataTable<TData, TValue>({
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [showColumnPicker, setShowColumnPicker] = useState(false);
   const [density, setDensity] = useState<Density>('default');
+  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize });
+  const currentPagination = serverPagination
+    ? { pageIndex: serverPagination.pageIndex, pageSize: serverPagination.pageSize }
+    : pagination;
 
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, columnFilters, rowSelection, columnVisibility },
+    state: { sorting, columnFilters, rowSelection, columnVisibility, pagination: currentPagination },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
+    onPaginationChange: (updater) => {
+      const nextPagination = typeof updater === 'function'
+        ? updater(currentPagination)
+        : updater;
+      if (!serverPagination) {
+        setPagination(nextPagination);
+      } else if (nextPagination.pageSize !== currentPagination.pageSize) {
+        serverPagination.onPageSizeChange(nextPagination.pageSize);
+      } else if (nextPagination.pageIndex !== currentPagination.pageIndex) {
+        serverPagination.onPageIndexChange(nextPagination.pageIndex);
+      }
+    },
     onRowSelectionChange: (updater: import('@tanstack/react-table').Updater<import('@tanstack/react-table').RowSelectionState>) => {
       const newSelection = typeof updater === 'function' ? updater(rowSelection) : updater;
       setRowSelection(newSelection);
@@ -105,6 +130,8 @@ export function DataTable<TData, TValue>({
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    manualPagination: Boolean(serverPagination),
+    pageCount: serverPagination?.pageCount,
     enableRowSelection,
     initialState: { pagination: { pageSize } },
   });
