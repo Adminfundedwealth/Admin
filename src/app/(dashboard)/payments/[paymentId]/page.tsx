@@ -19,12 +19,16 @@ interface PaymentDetail {
   order_number: string;
   provider: string;
   provider_transaction_id: string | null;
+  utr_reference: string | null;
   provider_payment_intent_id: string | null;
   amount: number;
   currency: string;
   fee: number;
   net_amount: number;
   status: string;
+  order_status: string;
+  plan_type: string | null;
+  account_size: number | null;
   failure_reason: string | null;
   refund_amount: number | null;
   refund_reason: string | null;
@@ -38,6 +42,29 @@ interface PaymentDetail {
   updated_at: string;
 }
 
+interface ManualPayment {
+  id: number;
+  status: string;
+  amount: number;
+  utr: string | null;
+  reference: string | null;
+  proof_url: string | null;
+  reviewed_at: string | null;
+}
+
+interface ProvisioningStatus {
+  status: string;
+  trading_account_id: string | null;
+  challenge_account_id: string | null;
+  error_message: string | null;
+}
+
+interface LinkedAccount {
+  id: string;
+  account_code: string | null;
+  status: string;
+}
+
 export default function PaymentDetailPage() {
   const params = useParams();
   const paymentId = params.paymentId as string;
@@ -49,6 +76,12 @@ export default function PaymentDetailPage() {
   const [reason, setReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [actionSuccess, setActionSuccess] = useState('');
+  const [manualPayment, setManualPayment] = useState<ManualPayment | null>(null);
+  const [provisioning, setProvisioning] = useState<ProvisioningStatus | null>(null);
+  const [linkedAccount, setLinkedAccount] = useState<LinkedAccount | null>(null);
+  const [verifiedCredit, setVerifiedCredit] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
 
   useEffect(() => { fetchPayment(); }, [paymentId]);
 
@@ -59,6 +92,9 @@ export default function PaymentDetailPage() {
       if (!res.ok) throw new Error('Failed');
       const json = await res.json();
       setPayment(json.data.payment);
+      setManualPayment(json.data.manualPayment || null);
+      setProvisioning(json.data.provisioning || null);
+      setLinkedAccount(json.data.linkedAccount || null);
       setTimeline(json.data.timeline || []);
     } catch {
       setError('Failed to load payment details.');
@@ -90,6 +126,43 @@ export default function PaymentDetailPage() {
       fetchPayment();
     } catch {
       setActionError('Refund failed.');
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleManualReview(action: 'approve' | 'reject') {
+    if (action === 'approve' && !verifiedCredit) {
+      setActionError('Confirm that the actual bank/UPI credit was independently verified before approval.');
+      return;
+    }
+    if (action === 'reject' && rejectionReason.trim().length < 10) {
+      setActionError('Rejection reason must be at least 10 characters.');
+      return;
+    }
+
+    setActionLoading(true);
+    setActionError('');
+    setActionSuccess('');
+    try {
+      const res = await fetch(`/api/payments/${paymentId}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action === 'approve'
+          ? { action, verifiedCredit: true }
+          : { action, reason: rejectionReason.trim() }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error?.message || 'Payment review failed.');
+
+      setActionSuccess(action === 'approve'
+        ? 'Payment review completed. The order and provisioning status were refreshed.'
+        : 'Payment rejected.');
+      setVerifiedCredit(false);
+      setRejectionReason('');
+      await fetchPayment();
+    } catch (reviewError) {
+      setActionError(reviewError instanceof Error ? reviewError.message : 'Payment review failed.');
     } finally {
       setActionLoading(false);
     }
@@ -189,6 +262,80 @@ export default function PaymentDetailPage() {
           </Card>
         </div>
       </div>
+
+      {payment.order_status === 'pending_review' && manualPayment?.status === 'pending' && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Manual payment review required</CardTitle></CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <p className="text-muted-foreground">
+              This order remains unconfirmed and no account is provisioned until staff verifies the actual payment.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div><span className="text-muted-foreground">UTR / Reference: </span><span className="font-mono">{manualPayment.utr || manualPayment.reference || payment.utr_reference || '—'}</span></div>
+              <div><span className="text-muted-foreground">Payment status: </span>{manualPayment.status}</div>
+              <div><span className="text-muted-foreground">Plan: </span>{payment.plan_type || '—'}</div>
+              <div><span className="text-muted-foreground">Account size: </span>{payment.account_size ? formatCurrency(payment.account_size) : '—'}</div>
+            </div>
+            {manualPayment.proof_url && (
+              <a href={manualPayment.proof_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                View payment proof <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={verifiedCredit}
+                onChange={(event) => setVerifiedCredit(event.target.checked)}
+                disabled={actionLoading}
+              />
+              <span>I independently verified the matching ₹{payment.amount.toLocaleString('en-IN')} credit in the bank/UPI account.</span>
+            </label>
+            <textarea
+              value={rejectionReason}
+              onChange={(event) => setRejectionReason(event.target.value)}
+              placeholder="Rejection reason (minimum 10 characters)"
+              className="w-full min-h-[72px] rounded border bg-background px-3 py-2"
+              disabled={actionLoading}
+            />
+            {actionError && <p role="alert" className="text-sm text-destructive">{actionError}</p>}
+            {actionSuccess && <p role="status" className="text-sm text-green-700">{actionSuccess}</p>}
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => handleManualReview('approve')} disabled={actionLoading || !verifiedCredit}>
+                {actionLoading ? 'Processing…' : 'Approve & provision account'}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => handleManualReview('reject')}
+                disabled={actionLoading || rejectionReason.trim().length < 10}
+              >
+                Reject payment
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {payment.is_manual && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Account provisioning</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {provisioning ? (
+              <>
+                <div><span className="text-muted-foreground">Provisioning status: </span>{provisioning.status}</div>
+                {provisioning.error_message && <p role="alert" className="text-destructive">{provisioning.error_message}</p>}
+                {linkedAccount && (
+                  <>
+                    <div><span className="text-muted-foreground">Account: </span>{linkedAccount.account_code || linkedAccount.id}</div>
+                    <div><span className="text-muted-foreground">Account status: </span>{linkedAccount.status}</div>
+                  </>
+                )}
+              </>
+            ) : (
+              <p className="text-muted-foreground">No provisioning record yet. Manual payment must be approved before account creation.</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Timeline */}
       <Card>
