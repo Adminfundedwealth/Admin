@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/components/providers/theme-provider';
 import { useLayout } from '@/hooks/use-layout';
+import { apiFetch } from '@/lib/api/fetch';
 import { Activity, Bell, LogOut, Moon, Sun, Search, Command, Eye, Shield, Sparkles } from 'lucide-react';
 
 export function Header() {
@@ -14,7 +15,7 @@ export function Header() {
   const [notificationCount] = useState(3);
 
   async function handleLogout() {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await apiFetch('/api/auth/logout', { method: 'POST' });
     router.push('/login');
   }
 

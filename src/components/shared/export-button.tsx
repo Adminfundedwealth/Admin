@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { apiFetch } from '@/lib/api/fetch';
 import { Download, Loader2 } from 'lucide-react';
 
 interface ExportButtonProps {
@@ -30,7 +31,7 @@ export function ExportButton({
     setMessage('');
 
     try {
-      const res = await fetch('/api/export', {
+      const res = await apiFetch('/api/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourceCenter, filters }),

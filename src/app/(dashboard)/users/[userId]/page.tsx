@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Timeline, type TimelineEvent } from '@/components/shared/timeline';
 import { LoadingState } from '@/components/shared/loading-state';
 import { ErrorState } from '@/components/shared/error-state';
+import { apiFetch } from '@/lib/api/fetch';
 import { Ban, Pause, MessageSquarePlus, ExternalLink, ShoppingCart, CreditCard, Trophy, TrendingUp, Wallet, Headphones, ShieldCheck } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 
@@ -149,7 +150,7 @@ export default function UserProfilePage() {
     if (noteBody.length < 10 || noteBody.length > 5000) return;
 
     try {
-      const res = await fetch(`/api/users/${userId}/notes`, {
+      const res = await apiFetch(`/api/users/${userId}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ body: noteBody, category: noteCategory }),
@@ -168,7 +169,7 @@ export default function UserProfilePage() {
     if (actionReason.length < 10) return;
 
     try {
-      await fetch(`/api/users/${userId}/${action}`, {
+      await apiFetch(`/api/users/${userId}/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: actionReason }),

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Timeline, type TimelineEvent } from '@/components/shared/timeline';
 import { LoadingState } from '@/components/shared/loading-state';
 import { ErrorState } from '@/components/shared/error-state';
+import { apiFetch } from '@/lib/api/fetch';
 import { formatCurrency } from '@/lib/utils';
 import { ExternalLink, RotateCcw } from 'lucide-react';
 
@@ -112,7 +113,7 @@ export default function PaymentDetailPage() {
     setActionLoading(true);
     setActionError('');
     try {
-      const res = await fetch(`/api/payments/${paymentId}/refund`, {
+      const res = await apiFetch(`/api/payments/${paymentId}/refund`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason }),
@@ -146,7 +147,7 @@ export default function PaymentDetailPage() {
     setActionError('');
     setActionSuccess('');
     try {
-      const res = await fetch(`/api/payments/${paymentId}/review`, {
+      const res = await apiFetch(`/api/payments/${paymentId}/review`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(action === 'approve'

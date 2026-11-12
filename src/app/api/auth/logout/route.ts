@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { clearSessionCookies } from '@/lib/security/session-cookies';
 
 /**
  * POST /api/auth/logout
@@ -26,15 +27,8 @@ export async function POST(request: NextRequest) {
         .eq('token_hash', tokenHash);
     }
 
-    // Clear the session cookie
     const response = NextResponse.json({ success: true });
-    response.cookies.set('session_token', '', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 0,
-      path: '/',
-    });
+    clearSessionCookies(response);
 
     return response;
   } catch (err) {

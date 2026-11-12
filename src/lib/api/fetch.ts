@@ -1,18 +1,13 @@
 /**
  * Shared authenticated fetch wrapper for all Admin dashboard client components.
  *
- * Automatically:
- *   - Reads the __csrf_token cookie set by middleware
- *   - Sends it as x-csrf-token header on every mutating request (POST/PUT/PATCH/DELETE)
- *   - Sets credentials: 'include' so session cookies are always forwarded
- *   - Auto-fetches a fresh CSRF token if the cookie is missing (e.g. new tab, hard refresh)
+ * Retrieves a session-bound CSRF token before each mutation and retries once
+ * when middleware rejects a stale token.
  *
  * Usage (drop-in replacement for fetch):
  *   import { apiFetch } from '@/lib/api/fetch';
  *   const res = await apiFetch('/api/founder/emergency-provision', { method: 'POST', body: ... });
  */
-
-const CSRF_COOKIE = '__csrf_token';
 
 export async function readApiJson(response: Response): Promise<Record<string, unknown>> {
   const body = await response.text();
@@ -34,27 +29,15 @@ export async function readApiJson(response: Response): Promise<Record<string, un
   return parsed as Record<string, unknown>;
 }
 
-function getCsrfToken(): string {
-  if (typeof document === 'undefined') return '';
-  const entry = document.cookie
-    .split('; ')
-    .find((c) => c.startsWith(`${CSRF_COOKIE}=`));
-  if (!entry) return '';
-  // Use slice instead of split('=')[1] to correctly handle any '=' in the value
-  const raw = entry.slice(CSRF_COOKIE.length + 1);
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return raw;
-  }
-}
-
 /**
- * Fetch a fresh CSRF token from the server when the cookie is unavailable.
+ * Fetch the token bound to the current session before a mutation. This also
+ * repairs stale cookies in other tabs after login or session replacement.
  */
 async function fetchCsrfToken(): Promise<string> {
-  const response = await fetch('/api/auth/csrf', { credentials: 'include' });
-  if (response.status === 204) return '';
+  const response = await fetch('/api/auth/csrf', {
+    credentials: 'include',
+    cache: 'no-store',
+  });
   if (!response.ok) {
     throw new Error(`Unable to retrieve a CSRF token (HTTP ${response.status})`);
   }
@@ -67,6 +50,19 @@ async function fetchCsrfToken(): Promise<string> {
   return json.token;
 }
 
+async function isCsrfFailure(response: Response): Promise<boolean> {
+  if (response.status !== 403) return false;
+  try {
+    const body: unknown = await response.clone().json();
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) return false;
+    const error = (body as Record<string, unknown>).error;
+    return typeof error === 'object' && error !== null && !Array.isArray(error) &&
+      (error as Record<string, unknown>).code === 'CSRF_INVALID';
+  } catch {
+    return false;
+  }
+}
+
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export async function apiFetch(
@@ -77,23 +73,22 @@ export async function apiFetch(
   const headers = new Headers(init.headers);
 
   if (MUTATING.has(method)) {
-    // Try reading the CSRF token from document.cookie first
-    let token = getCsrfToken();
-
-    // If not in document.cookie (e.g. new tab, hard refresh, cookie cleared),
-    // fetch it from the server — middleware has it from the session cookie.
-    if (!token) {
-      token = await fetchCsrfToken();
-    }
-
-    if (token) {
-      headers.set('x-csrf-token', token);
-    }
+    headers.set('x-csrf-token', await fetchCsrfToken());
 
     if (!headers.has('Content-Type') && !(init.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
     }
   }
 
-  return fetch(input, { ...init, headers, credentials: 'include' });
+  let response = await fetch(input, { ...init, headers, credentials: 'include' });
+  const canRetry = !(
+    init.body &&
+    typeof ReadableStream !== 'undefined' &&
+    init.body instanceof ReadableStream
+  );
+  if (MUTATING.has(method) && canRetry && await isCsrfFailure(response)) {
+    headers.set('x-csrf-token', await fetchCsrfToken());
+    response = await fetch(input, { ...init, headers, credentials: 'include' });
+  }
+  return response;
 }

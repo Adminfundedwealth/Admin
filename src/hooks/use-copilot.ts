@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { apiFetch } from '@/lib/api/fetch';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -114,7 +115,7 @@ export function useCopilot(userRole: string = 'default') {
     abortRef.current = controller;
 
     try {
-      const res = await fetch('/api/copilot/query', {
+      const res = await apiFetch('/api/copilot/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

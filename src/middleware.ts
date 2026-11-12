@@ -1,5 +1,12 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  CSRF_COOKIE_NAME,
+  CSRF_HEADER_NAME,
+  generateCSRFToken,
+  validateCSRFToken,
+} from './lib/security/csrf';
+import { clearSessionCookies } from './lib/security/session-cookies';
 
 /**
  * Next.js Edge Middleware — Admin Route Protection
@@ -17,9 +24,14 @@ import { createClient } from '@supabase/supabase-js';
  */
 
 const SESSION_COOKIE_NAME = 'session_token';
-const CSRF_COOKIE_NAME = '__csrf_token';
-const CSRF_HEADER_NAME = 'x-csrf-token';
 const WRITE_METHODS_CSRF = ['POST', 'PUT', 'PATCH', 'DELETE'];
+const PUBLIC_AUTH_PAGES = new Set(['/login', '/2fa', '/2fa-setup']);
+export const PUBLIC_AUTH_API_PATHS = new Set([
+  '/api/auth/login',
+  '/api/auth/2fa/verify',
+  '/api/auth/2fa/setup',
+  '/api/auth/2fa/setup/verify',
+]);
 
 // Route permission mapping
 const ROUTE_PERMISSIONS: Record<string, string> = {
@@ -170,8 +182,8 @@ async function _middleware(request: NextRequest, pathname: string) {
     return NextResponse.next();
   }
 
-  // Auth routes — always accessible (login, 2fa pages)
-  if (pathname.startsWith('/login') || pathname.startsWith('/2fa') || pathname.startsWith('/api/auth')) {
+  // Login and 2FA bootstrap routes do not have an authenticated session yet.
+  if (PUBLIC_AUTH_PAGES.has(pathname) || PUBLIC_AUTH_API_PATHS.has(pathname)) {
     return NextResponse.next();
   }
 
@@ -181,14 +193,14 @@ async function _middleware(request: NextRequest, pathname: string) {
   if (!token) {
     // No session — redirect to login for pages, 401 for API
     if (pathname.startsWith('/api/')) {
-      return NextResponse.json(
+      return clearSessionCookies(NextResponse.json(
         { error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
         { status: 401 }
-      );
+      ));
     }
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(loginUrl);
+    return clearSessionCookies(NextResponse.redirect(loginUrl));
   }
 
   // Validate session against staff_sessions table
@@ -208,16 +220,15 @@ async function _middleware(request: NextRequest, pathname: string) {
   if (sessionError || !session || session.invalidated_at) {
     // Invalid/expired session
     if (pathname.startsWith('/api/')) {
-      return NextResponse.json(
+      return clearSessionCookies(NextResponse.json(
         { error: { code: 'UNAUTHORIZED', message: 'Session invalid or expired' } },
         { status: 401 }
-      );
+      ));
     }
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('redirect', pathname);
     const response = NextResponse.redirect(loginUrl);
-    response.cookies.delete(SESSION_COOKIE_NAME);
-    return response;
+    return clearSessionCookies(response);
   }
 
   // Check idle timeout (30 minutes)
@@ -225,33 +236,31 @@ async function _middleware(request: NextRequest, pathname: string) {
   const lastActivity = new Date(session.last_activity).getTime();
   if (now - lastActivity > 30 * 60 * 1000) {
     if (pathname.startsWith('/api/')) {
-      return NextResponse.json(
+      return clearSessionCookies(NextResponse.json(
         { error: { code: 'SESSION_EXPIRED', message: 'Session expired due to inactivity' } },
         { status: 401 }
-      );
+      ));
     }
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('redirect', pathname);
     loginUrl.searchParams.set('reason', 'idle');
     const response = NextResponse.redirect(loginUrl);
-    response.cookies.delete(SESSION_COOKIE_NAME);
-    return response;
+    return clearSessionCookies(response);
   }
 
   // Check max age (8 hours)
   const expiresAt = new Date(session.expires_at).getTime();
-  if (now > expiresAt) {
+  if (!Number.isFinite(expiresAt) || now >= expiresAt) {
     if (pathname.startsWith('/api/')) {
-      return NextResponse.json(
+      return clearSessionCookies(NextResponse.json(
         { error: { code: 'SESSION_EXPIRED', message: 'Session expired' } },
         { status: 401 }
-      );
+      ));
     }
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('redirect', pathname);
     const response = NextResponse.redirect(loginUrl);
-    response.cookies.delete(SESSION_COOKIE_NAME);
-    return response;
+    return clearSessionCookies(response);
   }
 
   const staffId = session.staff_id;
@@ -265,15 +274,14 @@ async function _middleware(request: NextRequest, pathname: string) {
 
   if (!staff || staff.status !== 'active') {
     if (pathname.startsWith('/api/')) {
-      return NextResponse.json(
+      return clearSessionCookies(NextResponse.json(
         { error: { code: 'ACCOUNT_DISABLED', message: 'Staff account is not active' } },
         { status: 403 }
-      );
+      ));
     }
     const loginUrl = new URL('/login', request.url);
     const response = NextResponse.redirect(loginUrl);
-    response.cookies.delete(SESSION_COOKIE_NAME);
-    return response;
+    return clearSessionCookies(response);
   }
 
   // Rate-limit API traffic without counting authenticated page navigations.
@@ -342,23 +350,13 @@ async function _middleware(request: NextRequest, pathname: string) {
       );
     }
 
-    // Skip CSRF for auth endpoints (handled above, but belt-and-suspenders)
-    if (!pathname.startsWith('/api/auth') && !pathname.startsWith('/api/cron')) {
-      const cookieToken = request.cookies.get(CSRF_COOKIE_NAME)?.value;
-      const headerToken = request.headers.get(CSRF_HEADER_NAME);
-
-      // Require CSRF header on all mutating requests once a session is established.
-      // If the cookie token is missing, it means the page hasn't been loaded yet —
-      // skip enforcement so the client can navigate and get the token set.
-      // If the cookie exists but no header is sent, or they don't match → block.
-      if (cookieToken) {
-        if (!headerToken || cookieToken !== headerToken) {
-          return NextResponse.json(
-            { error: { code: 'CSRF_INVALID', message: 'CSRF token missing or mismatched' } },
-            { status: 403 }
-          );
-        }
-      }
+    const cookieToken = request.cookies.get(CSRF_COOKIE_NAME)?.value;
+    const headerToken = request.headers.get(CSRF_HEADER_NAME);
+    if (!await validateCSRFToken(cookieToken, headerToken, token, expiresAt)) {
+      return NextResponse.json(
+        { error: { code: 'CSRF_INVALID', message: 'CSRF token missing, invalid, expired, or mismatched' } },
+        { status: 403 }
+      );
     }
   }
 
@@ -375,24 +373,27 @@ async function _middleware(request: NextRequest, pathname: string) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('X-Staff-Id', staffId);
 
+  let csrfToken: string | null = null;
+  if (!WRITE_METHODS_CSRF.includes(request.method.toUpperCase())) {
+    csrfToken = await generateCSRFToken(token, expiresAt);
+    if (pathname === '/api/auth/csrf') {
+      requestHeaders.set(CSRF_HEADER_NAME, csrfToken);
+    }
+  }
+
   const response = NextResponse.next({
     request: { headers: requestHeaders },
   });
   response.headers.set('X-RateLimit-Remaining', rateResult.remaining.toString());
   response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
 
-  // Set/refresh CSRF cookie on every page (non-API) request
-  if (!pathname.startsWith('/api/')) {
-    const existingCsrf = request.cookies.get(CSRF_COOKIE_NAME)?.value;
-    const csrfToken = existingCsrf || Array.from(crypto.getRandomValues(new Uint8Array(32)))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+  if (csrfToken) {
     response.cookies.set(CSRF_COOKIE_NAME, csrfToken, {
       httpOnly: false, // Must be readable by JS to send as header
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
       path: '/',
-      maxAge: 8 * 60 * 60,
+      maxAge: Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)),
     });
   }
 

@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { TOTP } from 'otpauth';
 import { sessionManager } from '@/lib/session/manager';
 import { encrypt, decrypt, isEncrypted } from '@/lib/security/encryption';
+import { setSessionCookies } from '@/lib/security/session-cookies';
 
 /**
  * POST /api/auth/2fa/setup/verify
@@ -118,7 +119,7 @@ export async function POST(request: NextRequest) {
 
     // Create session
     const deviceFingerprint = request.headers.get('x-device-fingerprint') || 'setup-device';
-    const { token } = await sessionManager.create({
+    const { token, session } = await sessionManager.create({
       staffId: staff.id,
       deviceInfo: {
         fingerprint: deviceFingerprint,
@@ -135,13 +136,7 @@ export async function POST(request: NextRequest) {
       name: staff.name,
     });
 
-    response.cookies.set('session_token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      path: '/',
-      maxAge: 8 * 60 * 60, // 8 hours
-    });
+    await setSessionCookies(response, token, session.expiresAt);
 
     return response;
   } catch (err) {

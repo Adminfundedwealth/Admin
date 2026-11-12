@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { notificationEngine } from '@/lib/notifications/engine';
 import { z } from 'zod';
+import { setSessionCookies } from '@/lib/security/session-cookies';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email format'),
@@ -174,7 +175,7 @@ export async function POST(request: NextRequest) {
       // Staff can enable 2FA later from their profile
       const { sessionManager } = await import('@/lib/session/manager');
       const deviceFingerprint = request.headers.get('x-device-fingerprint') || 'unknown';
-      const { token } = await sessionManager.create({
+      const { token, session } = await sessionManager.create({
         staffId: staff.id,
         deviceInfo: {
           fingerprint: deviceFingerprint,
@@ -201,13 +202,7 @@ export async function POST(request: NextRequest) {
         name: staff.name,
       });
 
-      response.cookies.set('session_token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        path: '/',
-        maxAge: 8 * 60 * 60, // 8 hours
-      });
+      await setSessionCookies(response, token, session.expiresAt);
 
       return response;
     }

@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/shared/loading-state';
 import { ErrorState } from '@/components/shared/error-state';
+import { apiFetch } from '@/lib/api/fetch';
 import { ExternalLink, Send, ArrowUp, CheckCircle, XCircle } from 'lucide-react';
 
 interface TicketDetail {
@@ -75,7 +76,7 @@ export default function TicketDetailPage() {
     if (replyBody.length < 5) return;
     setReplyLoading(true);
     try {
-      const res = await fetch(`/api/support/${ticketId}/reply`, {
+      const res = await apiFetch(`/api/support/${ticketId}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ body: replyBody, is_internal_note: isInternalNote }),
@@ -90,7 +91,7 @@ export default function TicketDetailPage() {
   }
 
   async function handleStatusAction(action: string) {
-    await fetch(`/api/support/${ticketId}/${action}`, { method: 'POST' });
+    await apiFetch(`/api/support/${ticketId}/${action}`, { method: 'POST' });
     setActionModal(null);
     fetchTicket();
   }

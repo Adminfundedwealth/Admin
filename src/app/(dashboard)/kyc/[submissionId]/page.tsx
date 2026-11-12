@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Timeline, type TimelineEvent } from '@/components/shared/timeline';
 import { LoadingState } from '@/components/shared/loading-state';
 import { ErrorState } from '@/components/shared/error-state';
+import { apiFetch } from '@/lib/api/fetch';
 import { ExternalLink, CheckCircle, XCircle, RotateCcw } from 'lucide-react';
 
 interface KYCDetail {
@@ -69,7 +70,7 @@ export default function KYCDetailPage() {
     setActionLoading(true);
     setActionError('');
     try {
-      const res = await fetch(`/api/kyc/${submissionId}/${actionModal}`, {
+      const res = await apiFetch(`/api/kyc/${submissionId}/${actionModal}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason }),

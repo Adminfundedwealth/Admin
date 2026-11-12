@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Timeline, type TimelineEvent } from '@/components/shared/timeline';
 import { LoadingState } from '@/components/shared/loading-state';
 import { ErrorState } from '@/components/shared/error-state';
+import { apiFetch } from '@/lib/api/fetch';
 import { formatCurrency } from '@/lib/utils';
 import { ExternalLink, RotateCcw, XCircle } from 'lucide-react';
 
@@ -98,7 +99,7 @@ export default function PurchaseOrderDetailPage() {
     setActionLoading(true);
     setActionError('');
     try {
-      const res = await fetch(`/api/purchases/${orderId}/${actionModal}`, {
+      const res = await apiFetch(`/api/purchases/${orderId}/${actionModal}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason }),

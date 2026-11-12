@@ -10,6 +10,7 @@ import { ErrorState } from '@/components/shared/error-state';
 import { DeleteArchiveModal } from '@/components/shared/delete-archive-modal';
 import { useIsFounder } from '@/hooks/use-is-founder';
 import { LineChart } from '@/components/charts';
+import { apiFetch } from '@/lib/api/fetch';
 import { formatCurrency, formatPercentage } from '@/lib/utils';
 import { CheckCircle, XCircle, ExternalLink, Trash2 } from 'lucide-react';
 
@@ -86,7 +87,7 @@ export default function FundedDetailPage() {
   async function handleModify() {
     if (reason.length < 10) return;
     try {
-      await fetch(`/api/funded/${accountId}`, {
+      await apiFetch(`/api/funded/${accountId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason }),

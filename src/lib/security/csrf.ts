@@ -1,114 +1,89 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { randomBytes, createHmac } from 'crypto';
+const TOKEN_VERSION = 'v1';
+const encoder = new TextEncoder();
 
-const CSRF_COOKIE_NAME = '__csrf_token';
-const CSRF_HEADER_NAME = 'x-csrf-token';
-const CSRF_SECRET = process.env.SESSION_SECRET || 'fallback-csrf-secret-change-me';
+export const CSRF_COOKIE_NAME = '__csrf_token';
+export const CSRF_HEADER_NAME = 'x-csrf-token';
 
-/**
- * CSRF Protection Module
- * Uses Double-Submit Cookie pattern with HMAC signing.
- * 
- * - On GET requests, sets a signed CSRF cookie.
- * - On mutating requests (POST/PUT/PATCH/DELETE), validates the
- *   X-CSRF-Token header matches the cookie value.
- */
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
 
-/**
- * Generate a signed CSRF token.
- */
-export function generateCSRFToken(): string {
-  const payload = randomBytes(32).toString('hex');
-  const signature = createHmac('sha256', CSRF_SECRET).update(payload).digest('hex');
-  return `${payload}.${signature}`;
+function fromHex(value: string): Uint8Array | null {
+  if (!/^(?:[0-9a-f]{2})+$/i.test(value)) return null;
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+async function importSessionKey(sessionToken: string): Promise<CryptoKey> {
+  return globalThis.crypto.subtle.importKey(
+    'raw',
+    encoder.encode(sessionToken),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify'],
+  );
 }
 
 /**
- * Verify a CSRF token signature.
+ * Create a stable, session-bound double-submit token. The high-entropy,
+ * HttpOnly session token is the HMAC key, so tokens rotate with sessions and
+ * remain identical across tabs and concurrent requests for that session.
  */
-export function verifyCSRFToken(token: string): boolean {
-  const parts = token.split('.');
-  if (parts.length !== 2) return false;
-  const [payload, signature] = parts;
-  const expectedSignature = createHmac('sha256', CSRF_SECRET).update(payload).digest('hex');
-  // Constant-time comparison
-  if (signature.length !== expectedSignature.length) return false;
-  let mismatch = 0;
-  for (let i = 0; i < signature.length; i++) {
-    mismatch |= signature.charCodeAt(i) ^ expectedSignature.charCodeAt(i);
+export async function generateCSRFToken(
+  sessionToken: string,
+  sessionExpiresAt: number,
+): Promise<string> {
+  if (!sessionToken || !Number.isSafeInteger(sessionExpiresAt) || sessionExpiresAt <= Date.now()) {
+    throw new Error('Cannot create a CSRF token for an invalid or expired session');
   }
-  return mismatch === 0;
+
+  const payload = `${TOKEN_VERSION}.${sessionExpiresAt}`;
+  const signature = await globalThis.crypto.subtle.sign(
+    'HMAC',
+    await importSessionKey(sessionToken),
+    encoder.encode(payload),
+  );
+
+  return `${payload}.${toHex(new Uint8Array(signature))}`;
 }
 
-/**
- * Validate CSRF for a mutating request.
- * Returns null if valid, or an error response if invalid.
- */
-export function validateCSRF(request: NextRequest): NextResponse | null {
-  const method = request.method.toUpperCase();
-  
-  // Only validate on mutating methods
-  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    return null;
-  }
+export async function verifyCSRFToken(
+  token: string,
+  sessionToken: string,
+  sessionExpiresAt: number,
+): Promise<boolean> {
+  if (!token || !sessionToken || !Number.isSafeInteger(sessionExpiresAt)) return false;
 
-  // Skip CSRF for auth endpoints (login/2fa) as they don't have a session yet
-  const pathname = request.nextUrl.pathname;
-  if (pathname.startsWith('/api/auth')) {
-    return null;
-  }
+  const [version, expiryPart, signaturePart, extraPart] = token.split('.');
+  if (version !== TOKEN_VERSION || !expiryPart || !signaturePart || extraPart !== undefined) return false;
+  if (!/^\d+$/.test(expiryPart) || Number(expiryPart) !== sessionExpiresAt) return false;
 
-  const cookieToken = request.cookies.get(CSRF_COOKIE_NAME)?.value;
-  const headerToken = request.headers.get(CSRF_HEADER_NAME);
+  const signature = fromHex(signaturePart);
+  if (!signature || Number(expiryPart) <= Date.now()) return false;
+  const signatureBuffer = new ArrayBuffer(signature.byteLength);
+  new Uint8Array(signatureBuffer).set(signature);
 
-  if (!cookieToken || !headerToken) {
-    return NextResponse.json(
-      { error: { code: 'CSRF_INVALID', message: 'Missing CSRF token' } },
-      { status: 403 }
-    );
-  }
-
-  // Verify signatures on both tokens
-  if (!verifyCSRFToken(cookieToken) || !verifyCSRFToken(headerToken)) {
-    return NextResponse.json(
-      { error: { code: 'CSRF_INVALID', message: 'Invalid CSRF token' } },
-      { status: 403 }
-    );
-  }
-
-  // Verify both tokens match (double-submit)
-  if (cookieToken !== headerToken) {
-    return NextResponse.json(
-      { error: { code: 'CSRF_MISMATCH', message: 'CSRF token mismatch' } },
-      { status: 403 }
-    );
-  }
-
-  return null;
+  return globalThis.crypto.subtle.verify(
+    'HMAC',
+    await importSessionKey(sessionToken),
+    signatureBuffer,
+    encoder.encode(`${version}.${expiryPart}`),
+  );
 }
 
-/**
- * Set a CSRF cookie on a response (for pages/GET requests).
- */
-export function setCSRFCookie(response: NextResponse, request: NextRequest): NextResponse {
-  // Only set on page requests (not API GETs)
-  if (request.nextUrl.pathname.startsWith('/api/')) {
-    return response;
-  }
-
-  const existingToken = request.cookies.get(CSRF_COOKIE_NAME)?.value;
-  if (existingToken && verifyCSRFToken(existingToken)) {
-    return response; // Token already exists and is valid
-  }
-
-  const token = generateCSRFToken();
-  response.cookies.set(CSRF_COOKIE_NAME, token, {
-    httpOnly: false, // Must be readable by JS to send in header
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    path: '/',
-    maxAge: 8 * 60 * 60, // 8 hours
-  });
-
-  return response;
+export async function validateCSRFToken(
+  cookieToken: string | undefined,
+  headerToken: string | null,
+  sessionToken: string,
+  sessionExpiresAt: number,
+): Promise<boolean> {
+  return Boolean(
+    cookieToken &&
+    headerToken &&
+    cookieToken === headerToken &&
+    await verifyCSRFToken(cookieToken, sessionToken, sessionExpiresAt),
+  );
 }

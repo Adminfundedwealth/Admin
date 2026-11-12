@@ -10,6 +10,7 @@ import { LoadingState } from '@/components/shared/loading-state';
 import { ErrorState } from '@/components/shared/error-state';
 import { DeleteArchiveModal } from '@/components/shared/delete-archive-modal';
 import { useIsFounder } from '@/hooks/use-is-founder';
+import { apiFetch } from '@/lib/api/fetch';
 import { formatCurrency, formatPercentage } from '@/lib/utils';
 import {
   CheckCircle, XCircle, RotateCcw, Clock, ArrowUpCircle,
@@ -110,7 +111,7 @@ export default function ChallengeDetailPage() {
     setActionLoading(true);
     setActionError('');
     try {
-      const res = await fetch(`/api/challenges/${challengeId}/${actionModal}`, {
+      const res = await apiFetch(`/api/challenges/${challengeId}/${actionModal}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason }),
