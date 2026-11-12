@@ -41,6 +41,22 @@ interface PaymentAnalytics {
   disputedCount: number;
 }
 
+interface PaymentFilters {
+  status: string;
+  provider: string;
+  search: string;
+  dateFrom: string;
+  dateTo: string;
+}
+
+const initialFilters: PaymentFilters = {
+  status: '',
+  provider: '',
+  search: '',
+  dateFrom: '',
+  dateTo: '',
+};
+
 const statusColors: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
   processing: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
@@ -119,19 +135,18 @@ export default function PaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [totalCount, setTotalCount] = useState(0);
-  const [filters, setFilters] = useState({
-    status: '',
-    provider: '',
-    search: '',
-    dateFrom: '',
-    dateTo: '',
-  });
+  const [filters, setFilters] = useState(initialFilters);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
 
   const fetchPayments = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({
+        page: String(page + 1),
+        page_size: String(pageSize),
+      });
       if (filters.status) params.set('status', filters.status);
       if (filters.provider) params.set('provider', filters.provider);
       if (filters.search) params.set('search', filters.search);
@@ -148,9 +163,9 @@ export default function PaymentsPage() {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       setError('Failed to load payments.');
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  }, [filters]);
+  }, [filters, page, pageSize]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -159,7 +174,12 @@ export default function PaymentsPage() {
   }, [fetchPayments]);
 
   function clearFilters() {
-    setFilters({ status: '', provider: '', search: '', dateFrom: '', dateTo: '' });
+    updateFilters(() => initialFilters);
+  }
+
+  function updateFilters(update: (current: PaymentFilters) => PaymentFilters) {
+    setPage(0);
+    setFilters(update);
   }
 
   const hasActiveFilters = Object.values(filters).some(Boolean);
@@ -221,7 +241,7 @@ export default function PaymentsPage() {
         <SelectFilter
           label="Status"
           value={filters.status}
-          onChange={(v) => setFilters((f) => ({ ...f, status: v }))}
+          onChange={(v) => updateFilters((f) => ({ ...f, status: v }))}
           options={[
             { label: 'Pending', value: 'pending' },
             { label: 'Review required', value: 'pending_review' },
@@ -235,7 +255,7 @@ export default function PaymentsPage() {
         <SelectFilter
           label="Provider"
           value={filters.provider}
-          onChange={(v) => setFilters((f) => ({ ...f, provider: v }))}
+          onChange={(v) => updateFilters((f) => ({ ...f, provider: v }))}
           options={[
             { label: 'Stripe', value: 'stripe' },
             { label: 'Razorpay', value: 'razorpay' },
@@ -246,15 +266,15 @@ export default function PaymentsPage() {
         <TextFilter
           label="Search"
           value={filters.search}
-          onChange={(v) => setFilters((f) => ({ ...f, search: v }))}
+          onChange={(v) => updateFilters((f) => ({ ...f, search: v }))}
           placeholder="Transaction ID, email, or order #..."
         />
         <DateRangeFilter
           label="Date"
           from={filters.dateFrom}
           to={filters.dateTo}
-          onFromChange={(v) => setFilters((f) => ({ ...f, dateFrom: v }))}
-          onToChange={(v) => setFilters((f) => ({ ...f, dateTo: v }))}
+          onFromChange={(v) => updateFilters((f) => ({ ...f, dateFrom: v }))}
+          onToChange={(v) => updateFilters((f) => ({ ...f, dateTo: v }))}
         />
       </FilterBar>
 
@@ -267,7 +287,20 @@ export default function PaymentsPage() {
         <DataTable
           columns={columns}
           data={payments}
+          tableId="payments"
+          pageSize={pageSize}
+          pageSizeOptions={[10, 20, 50, 100]}
           totalCount={totalCount}
+          serverPagination={{
+            pageIndex: page,
+            pageSize,
+            pageCount: Math.max(1, Math.ceil(totalCount / pageSize)),
+            onPageIndexChange: setPage,
+            onPageSizeChange: (size) => {
+              setPage(0);
+              setPageSize(size);
+            },
+          }}
           onRowClick={(row) => router.push(`/payments/${row.id}`)}
         />
       )}
