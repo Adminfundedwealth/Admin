@@ -75,17 +75,17 @@ const columns: ColumnDef<PaymentRow, any>[] = [
   {
     accessorKey: 'amount',
     header: 'Amount',
-    cell: ({ row }) => <span className="font-medium">{formatCurrency(row.original.amount)}</span>,
+    cell: ({ row }) => <span className="font-medium">{formatCurrency(row.original.amount, row.original.currency)}</span>,
   },
   {
     accessorKey: 'fee',
     header: 'Fee',
-    cell: ({ getValue }) => <span className="text-muted-foreground">{formatCurrency(getValue() as number)}</span>,
+    cell: ({ row, getValue }) => <span className="text-muted-foreground">{formatCurrency(getValue() as number, row.original.currency)}</span>,
   },
   {
     accessorKey: 'net_amount',
     header: 'Net',
-    cell: ({ getValue }) => <span className="font-medium text-green-600">{formatCurrency(getValue() as number)}</span>,
+    cell: ({ row, getValue }) => <span className="font-medium text-green-600">{formatCurrency(getValue() as number, row.original.currency)}</span>,
   },
   {
     accessorKey: 'status',
@@ -186,7 +186,7 @@ export default function PaymentsPage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Collected Today</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{formatCurrency(analytics.totalCollectedToday)}</div>
+              <div className="text-2xl font-bold text-green-600">{formatCurrency(analytics.totalCollectedToday, 'INR')}</div>
             </CardContent>
           </Card>
           <Card>
@@ -194,7 +194,7 @@ export default function PaymentsPage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Fees Today</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-muted-foreground">{formatCurrency(analytics.totalFeesToday)}</div>
+              <div className="text-2xl font-bold text-muted-foreground">{formatCurrency(analytics.totalFeesToday, 'INR')}</div>
             </CardContent>
           </Card>
           <Card>

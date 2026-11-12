@@ -113,6 +113,7 @@ export async function GET(
     if (['confirmed', 'completed', 'active', 'paid'].includes(orderStatus)) paymentStatus = 'succeeded';
     else if (orderStatus === 'failed') paymentStatus = 'failed';
     else if (orderStatus === 'refunded') paymentStatus = 'refunded';
+    else if (orderStatus === 'pending_review') paymentStatus = 'pending_review';
 
     return NextResponse.json({
       data: {

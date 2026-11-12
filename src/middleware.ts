@@ -275,8 +275,10 @@ async function _middleware(request: NextRequest, pathname: string) {
     return response;
   }
 
-  // Rate limiting
-  const rateResult = checkRateLimit(staffId, request.method);
+  // Rate-limit API traffic without counting authenticated page navigations.
+  const rateResult = pathname.startsWith('/api/')
+    ? checkRateLimit(staffId, request.method)
+    : { allowed: true, remaining: RATE_LIMITS.read, resetInSeconds: 60 };
   if (!rateResult.allowed) {
     return NextResponse.json(
       { error: { code: 'RATE_LIMIT_EXCEEDED', message: `Rate limit exceeded. Retry in ${rateResult.resetInSeconds}s`, retryAfter: rateResult.resetInSeconds } },

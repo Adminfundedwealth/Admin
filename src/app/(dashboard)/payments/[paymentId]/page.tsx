@@ -181,7 +181,7 @@ export default function PaymentDetailPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Payment Details</h1>
           <p className="text-muted-foreground">
-            {payment.provider} • {formatCurrency(payment.amount)} {payment.currency} • Order {payment.order_number}
+            {payment.provider} • {formatCurrency(payment.amount, payment.currency)} • Order {payment.order_number}
           </p>
         </div>
         <div className="flex gap-2">
@@ -204,10 +204,10 @@ export default function PaymentDetailPage() {
             {payment.provider_payment_intent_id && (
               <div className="flex justify-between"><span className="text-muted-foreground">Payment Intent</span><span className="font-mono text-xs">{payment.provider_payment_intent_id}</span></div>
             )}
-            <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="capitalize font-medium">{payment.status}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-medium">{formatCurrency(payment.amount)} {payment.currency}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Provider Fee</span><span>{formatCurrency(payment.fee)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Net Amount</span><span className="font-medium text-green-600">{formatCurrency(payment.net_amount)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="capitalize font-medium">{payment.status.replace(/_/g, ' ')}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-medium">{formatCurrency(payment.amount, payment.currency)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Provider Fee</span><span>{formatCurrency(payment.fee, payment.currency)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Net Amount</span><span className="font-medium text-green-600">{formatCurrency(payment.net_amount, payment.currency)}</span></div>
             {payment.payment_method_type && (
               <div className="flex justify-between"><span className="text-muted-foreground">Payment Method</span><span>{payment.payment_method_type} •••• {payment.payment_method_last4}</span></div>
             )}
@@ -224,7 +224,7 @@ export default function PaymentDetailPage() {
               <div className="p-2 rounded bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-xs"><strong>Failure:</strong> {payment.failure_reason}</div>
             )}
             {payment.refund_amount && (
-              <div className="p-2 rounded bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 text-xs"><strong>Refunded:</strong> {formatCurrency(payment.refund_amount)} — {payment.refund_reason}</div>
+              <div className="p-2 rounded bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 text-xs"><strong>Refunded:</strong> {formatCurrency(payment.refund_amount, payment.currency)} — {payment.refund_reason}</div>
             )}
           </CardContent>
         </Card>
@@ -274,7 +274,7 @@ export default function PaymentDetailPage() {
               <div><span className="text-muted-foreground">UTR / Reference: </span><span className="font-mono">{manualPayment.utr || manualPayment.reference || payment.utr_reference || '—'}</span></div>
               <div><span className="text-muted-foreground">Payment status: </span>{manualPayment.status}</div>
               <div><span className="text-muted-foreground">Plan: </span>{payment.plan_type || '—'}</div>
-              <div><span className="text-muted-foreground">Account size: </span>{payment.account_size ? formatCurrency(payment.account_size) : '—'}</div>
+              <div><span className="text-muted-foreground">Account size: </span>{payment.account_size ? formatCurrency(payment.account_size, payment.currency) : '—'}</div>
             </div>
             {manualPayment.proof_url && (
               <a href={manualPayment.proof_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
@@ -356,7 +356,7 @@ export default function PaymentDetailPage() {
           <div className="relative bg-background p-6 rounded-lg shadow-xl w-full max-w-md space-y-4">
             <h3 className="text-lg font-semibold">Refund Payment</h3>
             <p className="text-sm text-muted-foreground">
-              Refund {formatCurrency(payment.amount)} to the customer. This will trigger a refund via {payment.provider}.
+              Refund {formatCurrency(payment.amount, payment.currency)} to the customer. This will trigger a refund via {payment.provider}.
             </p>
             <textarea
               value={reason}
