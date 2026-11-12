@@ -53,34 +53,28 @@ export function LayoutProvider({ children }: { children: React.ReactNode }) {
   // feedMode is derived from current route
   const feedMode: 'panel' | 'overlay' = isExecutive ? 'panel' : 'overlay';
 
-  const [navCollapsed, setNavCollapsed] = useState<boolean>(() =>
-    readBoolean(STORAGE_KEY_NAV, false),
-  );
+  const [navCollapsed, setNavCollapsed] = useState(false);
+  const [feedVisible, setFeedVisibleState] = useState(isExecutive);
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
 
-  const [feedVisible, setFeedVisibleState] = useState<boolean>(() =>
-    readBoolean(STORAGE_KEY_FEED, isExecutive),
-  );
-
-  // Sync feedVisible default when route changes to/from executive
   useEffect(() => {
-    if (isExecutive) {
-      // On executive route, show feed by default unless user explicitly hid it
-      const stored = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_FEED) : null;
-      if (stored === null) {
-        setFeedVisibleState(true);
-      }
-    }
-  }, [isExecutive]);
+    if (preferencesLoaded) return;
+    setNavCollapsed(readBoolean(STORAGE_KEY_NAV, false));
+    setFeedVisibleState(readBoolean(STORAGE_KEY_FEED, isExecutive));
+    setPreferencesLoaded(true);
+  }, [isExecutive, preferencesLoaded]);
 
   // Persist navCollapsed
   useEffect(() => {
+    if (!preferencesLoaded) return;
     writeBoolean(STORAGE_KEY_NAV, navCollapsed);
-  }, [navCollapsed]);
+  }, [navCollapsed, preferencesLoaded]);
 
   // Persist feedVisible
   useEffect(() => {
+    if (!preferencesLoaded) return;
     writeBoolean(STORAGE_KEY_FEED, feedVisible);
-  }, [feedVisible]);
+  }, [feedVisible, preferencesLoaded]);
 
   const toggleNav = useCallback(() => {
     setNavCollapsed((prev) => !prev);
