@@ -79,10 +79,11 @@ const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMITS = { read: 100, write: 30 };
 const WRITE_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];
 
-function checkRateLimit(staffId: string, method: string): { allowed: boolean; remaining: number; resetInSeconds: number } {
+function checkRateLimit(staffId: string, method: string, pathname: string): { allowed: boolean; remaining: number; resetInSeconds: number } {
   const type = WRITE_METHODS.includes(method) ? 'write' : 'read';
   const limit = type === 'write' ? RATE_LIMITS.write : RATE_LIMITS.read;
-  const key = `${staffId}:${type}`;
+  const scope = type === 'write' ? 'global' : pathname.split('/').filter(Boolean).slice(0, 2).join('/');
+  const key = `${staffId}:${type}:${scope}`;
   const now = Date.now();
 
   let bucket = rateLimitMap.get(key);
@@ -277,7 +278,7 @@ async function _middleware(request: NextRequest, pathname: string) {
 
   // Rate-limit API traffic without counting authenticated page navigations.
   const rateResult = pathname.startsWith('/api/')
-    ? checkRateLimit(staffId, request.method)
+    ? checkRateLimit(staffId, request.method, pathname)
     : { allowed: true, remaining: RATE_LIMITS.read, resetInSeconds: 60 };
   if (!rateResult.allowed) {
     return NextResponse.json(
