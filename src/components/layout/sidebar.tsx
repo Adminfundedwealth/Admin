@@ -79,6 +79,7 @@ export function Sidebar({ className }: SidebarProps) {
                   <li key={item.href}>
                     <Link
                       href={item.href}
+                      prefetch={false}
                       title={navCollapsed ? item.label : undefined}
                       className={cn(
                         'flex items-center gap-2.5 px-2 py-1.5 text-[13px] rounded-md transition-all duration-100',
@@ -118,7 +119,7 @@ export function Sidebar({ className }: SidebarProps) {
           <ul className="space-y-px">
             {favorites.slice(0, 5).map((fav) => (
               <li key={fav.id}>
-                <Link href={fav.href} className="flex items-center gap-2 px-2 py-1 text-[12px] rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground truncate">
+                <Link href={fav.href} prefetch={false} className="flex items-center gap-2 px-2 py-1 text-[12px] rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground truncate">
                   <Star className="h-3 w-3 text-yellow-500 shrink-0" />
                   <span className="truncate">{fav.title}</span>
                 </Link>
@@ -137,7 +138,7 @@ export function Sidebar({ className }: SidebarProps) {
           <ul className="space-y-px">
             {recentItems.slice(0, 5).map((item) => (
               <li key={item.id}>
-                <Link href={item.href} className="flex items-center gap-2 px-2 py-1 text-[12px] rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground truncate">
+                <Link href={item.href} prefetch={false} className="flex items-center gap-2 px-2 py-1 text-[12px] rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground truncate">
                   <span className="truncate">{item.title}</span>
                   <span className="text-[9px] text-muted-foreground/50 ml-auto shrink-0">{item.type}</span>
                 </Link>
