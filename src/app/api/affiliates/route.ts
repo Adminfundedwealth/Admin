@@ -4,34 +4,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requirePermissionInHandler } from '@/lib/security/require-auth';
 
-/**
- * Supabase / PostgREST error codes returned when a table does not exist.
- * PGRST200: schema cache miss (table not found by PostgREST)
- * 42P01:    PostgreSQL undefined_table
- */
-const TABLE_NOT_FOUND_CODES = new Set(['PGRST200', '42P01']);
-
-const EMPTY_RESPONSE = (page: number, pageSize: number) =>
-  NextResponse.json({
-    data: [],
-    meta: { page, pageSize, totalCount: 0, totalPages: 0 },
-    analytics: {
-      totalActive: 0,
-      totalSuspended: 0,
-      totalCommissionPending: 0,
-      totalCommissionPaid: 0,
-    },
-  });
+function isAffiliatesTableUnavailable(error: { code?: string; message: string }) {
+  return error.code === 'PGRST205'
+    || error.code === '42P01'
+    || error.message.includes("Could not find the table 'public.affiliates'")
+    || error.message.includes('relation "public.affiliates" does not exist');
+}
 
 /**
  * GET /api/affiliates
  * List affiliates with optional status filter and pagination.
  *
- * NOTE: The `affiliates` table is defined in migration 00006 but may not yet
- * exist in all environments. When the table is absent, this endpoint returns
- * an empty-but-valid response (HTTP 200) so the UI shows the empty state
- * rather than an error. Once the migration is applied the real data loads
- * automatically — no code change required.
+ * The table is defined in migration 00006. If it is unavailable in the active
+ * database schema, report that explicitly rather than presenting fake empty data.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -59,14 +44,17 @@ export async function GET(request: NextRequest) {
     const { data, error, count } = await query;
 
     if (error) {
-      // Gracefully handle missing table — return empty response so the UI
-      // shows the empty state instead of "Failed to load affiliates."
-      if (TABLE_NOT_FOUND_CODES.has(error.code) || error.message.includes('does not exist')) {
-        console.warn(
-          `[affiliates] Table not found in this environment (${error.code}: ${error.message}). ` +
-          'Apply migration 00006_affiliates_support_marketing_config.sql to enable this feature.',
+      if (isAffiliatesTableUnavailable(error)) {
+        console.error(`[affiliates] public.affiliates is unavailable (${error.code}): ${error.message}`);
+        return NextResponse.json(
+          {
+            error: {
+              code: 'AFFILIATES_SCHEMA_NOT_READY',
+              message: 'Affiliate data is unavailable because the Admin database does not expose public.affiliates. Verify the Admin database migration and PostgREST schema cache.',
+            },
+          },
+          { status: 503 },
         );
-        return EMPTY_RESPONSE(page, pageSize);
       }
 
       // All other Supabase errors — log the real message for diagnostics

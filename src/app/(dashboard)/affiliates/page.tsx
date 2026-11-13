@@ -71,14 +71,16 @@ export default function AffiliatesPage() {
       const params = new URLSearchParams();
       if (filters.status) params.set('status', filters.status);
       const res = await apiFetch(`/api/affiliates?${params.toString()}`, { signal });
-      if (!res.ok) throw new Error('Failed');
       const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error?.message || 'Failed to load affiliates.');
+      }
       setAffiliates(json.data || []);
       setTotalCount(json.meta?.totalCount ?? 0);
       setAnalytics(json.analytics || null);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      setError('Failed to load affiliates.');
+      setError(err instanceof Error ? err.message : 'Failed to load affiliates.');
     } finally {
       setLoading(false);
     }
