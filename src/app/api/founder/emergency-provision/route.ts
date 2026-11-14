@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { requireFounderInHandler } from '@/lib/security/require-auth';
 import { auditLogger } from '@/lib/audit/logger';
 import {
+  challengeStorageType,
   fetchCatalog,
   resolveSizeIndex,
   type CatalogProduct,
@@ -14,6 +15,20 @@ import {
   type TerminalCredentials,
 } from '@/lib/provisioning/credentials';
 import { z } from 'zod';
+
+const TERMINAL_API_URL = process.env.NODE_ENV === 'production'
+  ? 'https://new-terminal-production.up.railway.app'
+  : process.env.TERMINAL_API_URL || 'https://new-terminal-production.up.railway.app';
+
+type TerminalLinkResponse = {
+  success?: boolean;
+  result?: {
+    accountId?: string;
+    ruleVersionId?: string;
+    ruleVersion?: { id?: string; status?: string; rules?: Record<string, unknown> };
+  };
+  error?: string;
+};
 
 /**
  * GET /api/founder/emergency-provision
@@ -262,10 +277,7 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
     const orderId = `emrg-${Date.now()}-${userId.slice(0, 8)}`;
 
-    // Use the catalog's authoritative rules.type — matches what the production
-    // pipeline writes and what the terminal expects (e.g. 'flash_funding',
-    // 'instant_funding', '1step_evaluation', '2step_evaluation_phase1').
-    const challengeAccountType = product.rules.type;
+    const challengeAccountType = challengeStorageType(product.slug);
 
     // 6a. Upsert terminal_traders
     const { data: existingTrader } = await supabase
@@ -307,7 +319,7 @@ export async function POST(request: NextRequest) {
       .insert({
         trader_id: traderId,
         type: challengeAccountType,
-        plan: `${Math.round(account_size / 1000)}k-${challenge_type}`,
+        plan: product.slug,
         initial_balance: account_size,
         current_balance: account_size,
         peak_balance: account_size,
@@ -315,7 +327,7 @@ export async function POST(request: NextRequest) {
         daily_loss_limit_pct: product.rules.dailyLossLimitPct,
         max_drawdown_pct: product.rules.maxDrawdownPct,
         min_trading_days: product.rules.minTradingDays,
-        max_calendar_days: product.rules.maxDaysAllowed > 1 ? product.rules.maxDaysAllowed : null,
+        max_calendar_days: product.rules.maxDaysAllowed > 0 ? product.rules.maxDaysAllowed : null,
         status: 'active',
         started_at: now,
         created_at: now,
@@ -359,8 +371,9 @@ export async function POST(request: NextRequest) {
 
     // 6d. Create order record
     const sizeEntry = product.sizes.find((s) => s.accountSize === account_size);
+    let orderInsertError: string | null = null;
     try {
-      await supabase.from('orders').insert({
+      const { error: insertError } = await supabase.from('orders').insert({
         id: orderId,
         user_id: userId,
         amount: sizeEntry?.fee ?? 0,
@@ -371,12 +384,13 @@ export async function POST(request: NextRequest) {
         created_at: now,
         updated_at: now,
       });
+      if (insertError) orderInsertError = insertError.message;
     } catch (orderErr) {
-      console.error('[EmergencyProvision] Order insert failed (non-fatal):', orderErr);
+      orderInsertError = orderErr instanceof Error ? orderErr.message : 'Order insert failed.';
     }
 
     // 6e. Create provisioning_log
-    const { data: provLog } = await supabase
+    const { data: provLog, error: provLogErr } = await supabase
       .from('provisioning_logs')
       .insert({
         trader_id: traderId,
@@ -387,13 +401,40 @@ export async function POST(request: NextRequest) {
         payment_method: 'founder_emergency',
         payment_ref: `founder_emergency_provision|product=${challenge_type}|size=${account_size}`,
         source: 'founder_emergency',
-        status: 'completed',
+        status: 'pending',
         started_at: now,
-        completed_at: now,
         created_at: now,
       })
       .select('id')
       .single();
+    if (provLogErr || !provLog) {
+      console.error('[EmergencyProvision] Provisioning log creation failed:', provLogErr);
+      return NextResponse.json(
+        { error: { code: 'PROVISION_FAILED', message: 'Account was created but its provisioning record could not be verified.' } },
+        { status: 500 },
+      );
+    }
+
+    const failProvisioning = async (
+      message: string,
+      status = 502,
+      code = 'TERMINAL_RULE_BINDING_FAILED',
+    ) => {
+      const { error: logError } = await supabase
+        .from('provisioning_logs')
+        .update({ status: 'failed', error_message: message })
+        .eq('id', provLog.id);
+      if (logError) console.error('[EmergencyProvision] Failed to record provisioning failure:', logError);
+      return NextResponse.json(
+        { error: { code, message } },
+        { status },
+      );
+    };
+
+    if (orderInsertError) {
+      console.error('[EmergencyProvision] Order insert failed:', orderInsertError);
+      return failProvisioning('The account order could not be recorded; provisioning remains incomplete.', 500, 'PROVISION_FAILED');
+    }
 
     // ── 7. Save credentials ──────────────────────────────────────────────────
     const terminalLogin = accountCode;
@@ -407,10 +448,14 @@ export async function POST(request: NextRequest) {
       product_slug: challenge_type,
       account_size,
     });
-    await supabase
+    const { error: credentialError } = await supabase
       .from('trading_accounts')
       .update({ broker_credentials_encrypted: credPayload })
       .eq('id', tradingAccount.id);
+    if (credentialError) {
+      console.error('[EmergencyProvision] Credential persistence failed:', credentialError);
+      return failProvisioning('Terminal credentials could not be saved; provisioning remains incomplete.', 500, 'PROVISION_FAILED');
+    }
 
     // ── 9. Re-read stored account for verification ───────────────────────────
     const { data: storedChallengeAccount } = await supabase
@@ -418,6 +463,102 @@ export async function POST(request: NextRequest) {
       .select('id, type, plan, initial_balance, current_balance, profit_target_pct, daily_loss_limit_pct, max_drawdown_pct, min_trading_days, max_calendar_days, status, started_at, expires_at')
       .eq('id', challengeAccount.id)
       .single();
+
+    if (!storedChallengeAccount ||
+        storedChallengeAccount.plan !== product.slug ||
+        storedChallengeAccount.type !== challengeAccountType ||
+        Number(storedChallengeAccount.initial_balance) !== account_size ||
+        Number(storedChallengeAccount.current_balance) !== account_size ||
+        Number(storedChallengeAccount.profit_target_pct) !== product.rules.profitTargetPct ||
+        Number(storedChallengeAccount.daily_loss_limit_pct) !== product.rules.dailyLossLimitPct ||
+        Number(storedChallengeAccount.max_drawdown_pct) !== product.rules.maxDrawdownPct ||
+        Number(storedChallengeAccount.min_trading_days) !== product.rules.minTradingDays ||
+        Number(storedChallengeAccount.max_calendar_days) !== product.rules.maxDaysAllowed) {
+      return failProvisioning('The created challenge account does not match the selected product and initial balance.', 500, 'PROVISION_FAILED');
+    }
+
+    const sharedKey = process.env.SSO_API_KEY || process.env.SSO_SHARED_SECRET;
+    if (!sharedKey) {
+      return failProvisioning('Terminal SSO is not configured; no active rule version could be bound.', 503);
+    }
+
+    let terminalLink: TerminalLinkResponse | null = null;
+    try {
+      const terminalResponse = await fetch(`${TERMINAL_API_URL}/api/admin/account-links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-sso-api-key': sharedKey },
+        body: JSON.stringify({
+          mode: 'ensure',
+          source: {
+            customer: {
+              id: userId,
+              email: email.toLowerCase(),
+              name: name.trim(),
+            },
+            account: {
+              id: tradingAccount.id,
+              traderId,
+              accountCode,
+              status: 'active',
+              balance: account_size,
+              availableMargin: account_size,
+              usedMargin: 0,
+            },
+            challenge: {
+              id: challengeAccount.id,
+              traderId,
+              status: 'active',
+              type: challengeAccountType,
+              plan: product.slug,
+              initialBalance: account_size,
+              currentBalance: account_size,
+              peakBalance: account_size,
+              profitTargetPct: product.rules.profitTargetPct,
+              dailyLossLimitPct: product.rules.dailyLossLimitPct,
+              maxDrawdownPct: product.rules.maxDrawdownPct,
+              minTradingDays: product.rules.minTradingDays,
+              expiresAt: storedChallengeAccount.expires_at ?? null,
+            },
+            provisioning: {
+              status: 'ownership_verified',
+              source: 'founder_emergency',
+              traderId,
+              tradingAccountId: tradingAccount.id,
+              challengeAccountId: challengeAccount.id,
+            },
+          },
+        }),
+        signal: AbortSignal.timeout(25000),
+      });
+      terminalLink = await terminalResponse.json().catch(() => null) as TerminalLinkResponse | null;
+      if (!terminalResponse.ok || !terminalLink?.success) {
+        const message = terminalLink?.error || 'Terminal account linking did not succeed.';
+        return failProvisioning(message, terminalResponse.status === 409 ? 409 : 502);
+      }
+    } catch (error) {
+      console.error('[EmergencyProvision] Terminal account linking failed:', error);
+      return failProvisioning('Terminal account linking is unavailable; the account is not marked complete.');
+    }
+
+    const terminalRuleVersion = terminalLink?.result?.ruleVersion;
+    const terminalRuleVersionId = terminalLink?.result?.ruleVersionId;
+    if (!terminalLink?.result?.accountId || !terminalRuleVersionId ||
+        terminalRuleVersion?.id !== terminalRuleVersionId ||
+        terminalRuleVersion.status !== 'active' ||
+        !terminalRuleVersion.rules || Object.keys(terminalRuleVersion.rules).length === 0) {
+      return failProvisioning('Terminal did not confirm an active compatible rule version for this account.');
+    }
+
+    const { data: completedLog, error: completionError } = await supabase
+      .from('provisioning_logs')
+      .update({ status: 'completed', completed_at: new Date().toISOString(), error_message: null })
+      .eq('id', provLog.id)
+      .select('id, status')
+      .single();
+    if (completionError || completedLog?.status !== 'completed') {
+      console.error('[EmergencyProvision] Provisioning completion could not be verified:', completionError);
+      return failProvisioning('The terminal rule binding succeeded, but provisioning completion could not be recorded.', 500, 'PROVISION_FAILED');
+    }
 
     const verification = {
       provisioned_slug: challenge_type,
@@ -427,13 +568,21 @@ export async function POST(request: NextRequest) {
       catalog_profit_target_pct: product.rules.profitTargetPct,
       catalog_daily_loss_pct: product.rules.dailyLossLimitPct,
       catalog_max_drawdown_pct: product.rules.maxDrawdownPct,
+      catalog_min_trading_days: product.rules.minTradingDays,
+      catalog_max_calendar_days: product.rules.maxDaysAllowed,
       credentials_generated: true,
       terminal_login_set: !!terminalLogin,
       checks: {
         product_preserved: storedChallengeAccount?.type === challengeAccountType,
-        balance_correct: storedChallengeAccount?.initial_balance === account_size,
+        plan_preserved: storedChallengeAccount?.plan === product.slug,
+        balance_correct: Number(storedChallengeAccount?.initial_balance) === account_size &&
+          Number(storedChallengeAccount?.current_balance) === account_size,
         credentials_ready: !!terminalLogin && !!credentials.temporary_password,
+        terminal_rule_binding: terminalRuleVersionId === terminalRuleVersion.id &&
+          terminalRuleVersion.status === 'active',
       },
+      terminal_account_id: terminalLink.result.accountId,
+      terminal_rule_version_id: terminalRuleVersionId,
     };
 
     // ── 10. Audit log ────────────────────────────────────────────────────────

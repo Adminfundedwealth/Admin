@@ -54,8 +54,10 @@ interface StoredRules {
 
 interface VerificationChecks {
   product_preserved: boolean;
+  plan_preserved: boolean;
   balance_correct: boolean;
   credentials_ready: boolean;
+  terminal_rule_binding: boolean;
 }
 
 interface Verification {
@@ -66,6 +68,8 @@ interface Verification {
   catalog_profit_target_pct: number;
   catalog_daily_loss_pct: number;
   catalog_max_drawdown_pct: number;
+  terminal_account_id: string;
+  terminal_rule_version_id: string;
   credentials_generated: boolean;
   terminal_login_set: boolean;
   checks: VerificationChecks;
@@ -101,6 +105,10 @@ interface ProvisionResult {
   user_created: boolean;
   provisioned_at: string;
 }
+
+const formatINR = (value: number | string) =>
+  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })
+    .format(Number(value) || 0);
 
 interface ExistingAccountData {
   user_id: string;
@@ -435,7 +443,7 @@ export default function EmergencyManualProvisionPage() {
 
             {/* BUG 1: Exact product values */}
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <InfoRow label="Account Size" value={`₹${result.account_size.toLocaleString()}`} />
+              <InfoRow label="Account Size" value={formatINR(result.account_size)} />
               <InfoRow label="Challenge" value={result.challenge_display_name} />
               <InfoRow label="Leverage" value={result.leverage} />
               <InfoRow label="Profit Target" value={result.profit_target} />
@@ -456,7 +464,7 @@ export default function EmergencyManualProvisionPage() {
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                   <span>Type: <strong>{result.stored_rules.type}</strong></span>
                   <span>Plan: <strong>{result.stored_rules.plan}</strong></span>
-                  <span>Balance: <strong>₹{result.stored_rules.initial_balance?.toLocaleString()}</strong></span>
+                  <span>Balance: <strong>{formatINR(result.stored_rules.initial_balance)}</strong></span>
                   <span>Status: <strong>{result.stored_rules.status}</strong></span>
                   <span>Profit Target: <strong>{result.stored_rules.profit_target_pct}%</strong></span>
                   <span>Daily Loss: <strong>{result.stored_rules.daily_loss_limit_pct}%</strong></span>
@@ -473,8 +481,10 @@ export default function EmergencyManualProvisionPage() {
                   End-to-End Verification
                 </p>
                 <CheckLine label="Product type preserved" pass={result.verification.checks.product_preserved} />
+                <CheckLine label="Canonical plan preserved" pass={result.verification.checks.plan_preserved} />
                 <CheckLine label="Balance correct" pass={result.verification.checks.balance_correct} />
                 <CheckLine label="Credentials generated" pass={result.verification.checks.credentials_ready} />
+                <CheckLine label={`Active terminal rule ${result.verification.terminal_rule_version_id}`} pass={result.verification.checks.terminal_rule_binding} />
               </div>
             )}
 

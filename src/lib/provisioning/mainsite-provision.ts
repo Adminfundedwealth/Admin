@@ -14,6 +14,8 @@
  * challenge_accounts, trading_accounts and risk settings.
  */
 
+import { z } from 'zod';
+
 export type PlanSlug = 'flash' | 'instant' | '1step' | '2step';
 
 export interface CatalogSize {
@@ -55,89 +57,35 @@ export interface EmergencyProvisionResult {
   accountSize: number;
 }
 
-/**
- * Local catalog — mirrors @workspace/products exactly.
- * Used as primary source so Emergency Provision works even when the
- * api-server catalog endpoint is unavailable.
- */
-const LOCAL_CATALOG: CatalogProduct[] = [
-  {
-    slug: 'flash',
-    displayLabel: 'Flash',
-    serverLabel: 'Flash Funding',
-    leverage: '1:100',
-    profitSplit: '80%',
-    duration: '24 Hours',
-    maxLoss: '4%',
-    dailyLoss: '2%',
-    profitTarget: '—',
-    minDays: '—',
-    rules: { profitTargetPct: 0, dailyLossLimitPct: 2, maxDrawdownPct: 4, minTradingDays: 0, maxDaysAllowed: 1, type: 'evaluation_phase1' },
-    sizes: [
-      { index: 0, accountSize: 50000,   sizeLabel: '₹50,000',    fee: 1999,  popular: false },
-      { index: 1, accountSize: 100000,  sizeLabel: '₹1,00,000',  fee: 3499,  popular: false },
-      { index: 2, accountSize: 250000,  sizeLabel: '₹2,50,000',  fee: 7499,  popular: true  },
-      { index: 3, accountSize: 500000,  sizeLabel: '₹5,00,000',  fee: 11499, popular: false },
-      { index: 4, accountSize: 1000000, sizeLabel: '₹10,00,000', fee: 19499, popular: false },
-    ],
-  },
-  {
-    slug: 'instant',
-    displayLabel: 'Instant',
-    serverLabel: 'Instant Funding',
-    leverage: '1:50',
-    profitSplit: '80%',
-    duration: 'Unlimited',
-    maxLoss: '5%',
-    dailyLoss: '3%',
-    profitTarget: 'N/A',
-    minDays: '7',
-    rules: { profitTargetPct: 0, dailyLossLimitPct: 3, maxDrawdownPct: 5, minTradingDays: 7, maxDaysAllowed: 365, type: 'evaluation_phase1' },
-    sizes: [
-      { index: 0, accountSize: 100000,  sizeLabel: '₹1,00,000',  fee: 4999,  popular: false },
-      { index: 1, accountSize: 500000,  sizeLabel: '₹5,00,000',  fee: 10999, popular: true  },
-      { index: 2, accountSize: 1000000, sizeLabel: '₹10,00,000', fee: 17999, popular: false },
-      { index: 3, accountSize: 2000000, sizeLabel: '₹20,00,000', fee: 29999, popular: false },
-    ],
-  },
-  {
-    slug: '1step',
-    displayLabel: '1-Step',
-    serverLabel: '1-Step Evaluation',
-    leverage: '1:30',
-    profitSplit: '80%',
-    duration: 'Unlimited',
-    maxLoss: '6%',
-    dailyLoss: '3%',
-    profitTarget: '10%',
-    minDays: '5',
-    rules: { profitTargetPct: 10, dailyLossLimitPct: 3, maxDrawdownPct: 6, minTradingDays: 5, maxDaysAllowed: 365, type: 'evaluation_phase1' },
-    sizes: [
-      { index: 0, accountSize: 100000,  sizeLabel: '₹1,00,000',  fee: 2999,  popular: false },
-      { index: 1, accountSize: 500000,  sizeLabel: '₹5,00,000',  fee: 11999, popular: true  },
-      { index: 2, accountSize: 1000000, sizeLabel: '₹10,00,000', fee: 21999, popular: false },
-      { index: 3, accountSize: 2500000, sizeLabel: '₹25,00,000', fee: 48499, popular: false },
-    ],
-  },
-  {
-    slug: '2step',
-    displayLabel: '2-Step',
-    serverLabel: '2-Step Evaluation',
-    leverage: '1:30',
-    profitSplit: '80%',
-    duration: 'Unlimited',
-    maxLoss: '8%',
-    dailyLoss: '3%',
-    profitTarget: '8% + 5%',
-    minDays: '5',
-    rules: { profitTargetPct: 8, dailyLossLimitPct: 3, maxDrawdownPct: 8, minTradingDays: 5, maxDaysAllowed: 365, type: 'evaluation_phase1' },
-    sizes: [
-      { index: 0, accountSize: 500000,  sizeLabel: '₹5,00,000',  fee: 11999, popular: false },
-      { index: 1, accountSize: 1000000, sizeLabel: '₹10,00,000', fee: 21999, popular: true  },
-      { index: 2, accountSize: 2500000, sizeLabel: '₹25,00,000', fee: 48499, popular: false },
-    ],
-  },
-];
+const CatalogSchema = z.object({
+  products: z.array(z.object({
+    slug: z.enum(['flash', 'instant', '1step', '2step']),
+    displayLabel: z.string(),
+    serverLabel: z.string(),
+    leverage: z.string(),
+    profitSplit: z.string(),
+    duration: z.string(),
+    maxLoss: z.string(),
+    dailyLoss: z.string(),
+    profitTarget: z.string(),
+    minDays: z.string(),
+    rules: z.object({
+      profitTargetPct: z.number(),
+      dailyLossLimitPct: z.number(),
+      maxDrawdownPct: z.number(),
+      minTradingDays: z.number(),
+      maxDaysAllowed: z.number(),
+      type: z.string(),
+    }),
+    sizes: z.array(z.object({
+      index: z.number().int().nonnegative(),
+      accountSize: z.number().positive(),
+      sizeLabel: z.string(),
+      fee: z.number().nonnegative(),
+      popular: z.boolean(),
+    })),
+  })),
+});
 
 const PRODUCTION_API_BASE = 'https://fundedwealth-api-production.up.railway.app';
 
@@ -215,11 +163,31 @@ export async function reviewManualPayment(input: {
 
 /**
  * Fetch the production challenge catalog.
- * Returns the local catalog immediately — no network call needed.
- * The local catalog is kept in sync with @workspace/products (single source of truth).
+ * Reads the canonical catalog from the Main Site API. Fail closed if it is unavailable.
  */
 export async function fetchCatalog(): Promise<CatalogProduct[]> {
-  return LOCAL_CATALOG;
+  const res = await fetch(`${mainSiteApiBase()}/api/provisioning/catalog`, {
+    method: 'GET',
+    headers: internalHeaders(),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
+  });
+  const body: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message = typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string'
+      ? body.error
+      : `Product catalog unavailable (${res.status})`;
+    throw new MainSiteError(message, res.status || 502);
+  }
+  const parsed = CatalogSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new MainSiteError('Main site returned an invalid product catalog.', 502);
+  }
+  return parsed.data.products;
+}
+
+export function challengeStorageType(plan: PlanSlug): 'funded' | 'evaluation_phase1' {
+  return plan === 'flash' || plan === 'instant' ? 'funded' : 'evaluation_phase1';
 }
 
 /**
