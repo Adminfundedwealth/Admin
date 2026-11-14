@@ -122,6 +122,11 @@ interface ExistingAccountData {
   status: string;
 }
 
+function getProvisionRequestError(error: unknown): string {
+  const detail = error instanceof Error ? error.message : 'The server connection failed';
+  return `No provisioning confirmation was received (${detail}). Check whether an account was created before retrying; do not use Founder Override to recover this request.`;
+}
+
 export default function EmergencyManualProvisionPage() {
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
@@ -211,8 +216,8 @@ export default function EmergencyManualProvisionPage() {
         return;
       }
       setResult(json.data);
-    } catch {
-      setError('Network error. Please try again.');
+    } catch (err) {
+      setError(getProvisionRequestError(err));
     } finally {
       setSubmitting(false);
     }
@@ -228,6 +233,9 @@ export default function EmergencyManualProvisionPage() {
     if (!email.trim()) { setError('Email is required'); return; }
     if (!selectedProduct) { setError('Challenge type is required'); return; }
     if (!accountSize) { setError('Account size is required'); return; }
+    if (!window.confirm(
+      'Founder Override bypasses duplicate protection and creates an additional account for this email. Continue only if you intentionally want another account.',
+    )) return;
 
     setFounderOverrideSubmitting(true);
     try {
@@ -250,8 +258,8 @@ export default function EmergencyManualProvisionPage() {
         return;
       }
       setResult(json.data);
-    } catch {
-      setError('Network error. Please try again.');
+    } catch (err) {
+      setError(getProvisionRequestError(err));
     } finally {
       setFounderOverrideSubmitting(false);
     }
@@ -685,17 +693,6 @@ export default function EmergencyManualProvisionPage() {
                 {submitting ? 'Provisioning...' : `Provision ${currentProduct?.displayName || ''} Account`}
               </Button>
 
-              {/* Founder Override — bypasses duplicate-email restriction, creates a NEW account */}
-              <Button
-                type="button"
-                onClick={handleFounderOverride}
-                disabled={founderOverrideSubmitting || !selectedProduct || !accountSize}
-                className="w-full gap-2"
-                variant="outline"
-              >
-                <Shield className="h-4 w-4 text-destructive" />
-                {founderOverrideSubmitting ? 'Overriding...' : 'Founder Override'}
-              </Button>
             </form>
           </CardContent>
         </Card>
