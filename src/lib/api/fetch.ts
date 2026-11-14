@@ -90,5 +90,25 @@ export async function apiFetch(
     headers.set('x-csrf-token', await fetchCsrfToken());
     response = await fetch(input, { ...init, headers, credentials: 'include' });
   }
+
+  if (
+    response.status === 401 &&
+    typeof window !== 'undefined' &&
+    !['/login', '/2fa', '/2fa-setup'].includes(window.location.pathname)
+  ) {
+    const body = await response.clone().json().catch(() => null);
+    const error = body?.error;
+    const code = typeof error === 'object' && error !== null ? error.code : null;
+    if (code === 'UNAUTHORIZED' || code === 'SESSION_EXPIRED') {
+      const loginUrl = new URL('/login', window.location.origin);
+      loginUrl.searchParams.set(
+        'redirect',
+        `${window.location.pathname}${window.location.search}`,
+      );
+      loginUrl.searchParams.set('reason', 'session_expired');
+      window.location.assign(`${loginUrl.pathname}${loginUrl.search}`);
+    }
+  }
+
   return response;
 }

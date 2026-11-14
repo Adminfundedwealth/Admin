@@ -106,6 +106,7 @@ export async function POST(
       paymentId: Number(manualPayment.id),
       action,
       rejectionReason: action === 'reject' ? parsed.data.reason : undefined,
+      verifiedCredit: action === 'approve' ? parsed.data.verifiedCredit : undefined,
     });
 
     await auditLogger.log({

@@ -1,4 +1,4 @@
-import { cookies, headers } from 'next/headers';
+import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createHash } from 'crypto';
 
@@ -17,55 +17,12 @@ export interface AuthenticatedStaff {
  * Get the authenticated admin staff member from the current request session.
  * Use in API route handlers (server-side only, NOT edge).
  *
- * Fast path: If middleware already validated the session it sets X-Staff-Id header.
- *            We use that to avoid a redundant DB round-trip.
- * Slow path: Fall back to full cookie → staff_sessions → staff_members lookup.
- *
- * Returns null if not authenticated or session is invalid.
+ * The HttpOnly session cookie is the sole source of identity. Request headers
+ * are never trusted because clients can supply them directly.
  */
 export async function getAuthenticatedStaff(): Promise<AuthenticatedStaff | null> {
   try {
     const supabase = createAdminClient();
-
-    // ── Fast path: middleware already validated session ──────────────────────
-    // Middleware sets X-Staff-Id after successful session validation.
-    const headerStore = await headers();
-    const staffIdFromMiddleware = headerStore.get('x-staff-id');
-
-    if (staffIdFromMiddleware) {
-      // Middleware validated — just fetch the staff profile + roles
-      const { data: staff } = await supabase
-        .from('staff_members')
-        .select('id, email, name, status')
-        .eq('id', staffIdFromMiddleware)
-        .single();
-
-      if (!staff || staff.status !== 'active') return null;
-
-      const { data: assignments } = await supabase
-        .from('staff_role_assignments')
-        .select(`roles!inner(name, role_permissions(permission))`)
-        .eq('staff_id', staff.id);
-
-      const roles: string[] = [];
-      const permissionSet = new Set<string>();
-      for (const assignment of assignments || []) {
-        const role = assignment.roles as unknown as { name: string; role_permissions: { permission: string }[] };
-        roles.push(role.name);
-        for (const rp of role.role_permissions) permissionSet.add(rp.permission);
-      }
-
-      return {
-        id: staff.id,
-        email: staff.email,
-        name: staff.name,
-        roles,
-        permissions: Array.from(permissionSet),
-        isFullAccess: roles.some(r => r === 'Founder' || r === 'Co-Founder'),
-      };
-    }
-
-    // ── Slow path: full cookie → session → staff lookup ──────────────────────
     const cookieStore = await cookies();
     const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
 
@@ -87,11 +44,11 @@ export async function getAuthenticatedStaff(): Promise<AuthenticatedStaff | null
     // Check idle timeout (30 minutes)
     const now = Date.now();
     const lastActivity = new Date(session.last_activity).getTime();
-    if (now - lastActivity > 30 * 60 * 1000) return null;
+    if (!Number.isFinite(lastActivity) || now - lastActivity > 30 * 60 * 1000) return null;
 
     // Check max age (8 hours)
     const expiresAt = new Date(session.expires_at).getTime();
-    if (now > expiresAt) return null;
+    if (!Number.isFinite(expiresAt) || now >= expiresAt) return null;
 
     // Touch session (update last_activity)
     await supabase

@@ -13,6 +13,7 @@ import {
   verifyCSRFToken,
 } from '../../src/lib/security/csrf';
 import { apiFetch } from '../../src/lib/api/fetch';
+import { reviewManualPayment } from '../../src/lib/provisioning/mainsite-provision';
 
 test('CSRF token requires the current authenticated session and matching double-submit values', async () => {
   const sessionToken = 'session-token-one';
@@ -121,6 +122,74 @@ test('apiFetch retries once with a refreshed token after middleware rejects a st
   expect(requests.filter(({ input }) => input === '/api/auth/csrf')).toHaveLength(2);
   expect(new Headers(requests[1].init?.headers).get('x-csrf-token')).toBe('stale-token');
   expect(new Headers(requests[3].init?.headers).get('x-csrf-token')).toBe('refreshed-token');
+});
+
+test('apiFetch redirects expired sessions to sign-in while preserving the current route', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const assignedUrls: string[] = [];
+
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      location: {
+        pathname: '/payments/synthetic',
+        search: '?status=pending',
+        origin: 'https://admin.fundedwealth.com',
+        assign: (url: string) => assignedUrls.push(url),
+      },
+    },
+  });
+  globalThis.fetch = async (input) => input === '/api/auth/csrf'
+    ? Response.json({ token: 'current-session-token' })
+    : Response.json(
+      { error: { code: 'SESSION_EXPIRED' } },
+      { status: 401 },
+    );
+
+  try {
+    await apiFetch('/api/payments/synthetic/review', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'approve', verifiedCredit: true }),
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow) {
+      Object.defineProperty(globalThis, 'window', originalWindow);
+    } else {
+      Reflect.deleteProperty(globalThis, 'window');
+    }
+  }
+
+  expect(assignedUrls).toEqual([
+    '/login?redirect=%2Fpayments%2Fsynthetic%3Fstatus%3Dpending&reason=session_expired',
+  ]);
+});
+
+test('manual payment approval requires and forwards independent credit confirmation', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | undefined;
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return Response.json({ success: true });
+  };
+
+  try {
+    await expect(reviewManualPayment({
+      paymentId: 123,
+      action: 'approve',
+    })).rejects.toThrow('Independent bank credit confirmation is required.');
+
+    await reviewManualPayment({
+      paymentId: 123,
+      action: 'approve',
+      verifiedCredit: true,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  expect(requestBody).toEqual({ verifiedCredit: true });
 });
 
 test('expired CSRF tokens are rejected', async () => {

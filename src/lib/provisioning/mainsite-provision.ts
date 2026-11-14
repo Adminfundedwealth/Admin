@@ -188,7 +188,12 @@ export async function reviewManualPayment(input: {
   paymentId: number;
   action: 'approve' | 'reject';
   rejectionReason?: string;
+  verifiedCredit?: boolean;
 }): Promise<{ success: boolean; message?: string; alreadyApproved?: boolean }> {
+  if (input.action === 'approve' && input.verifiedCredit !== true) {
+    throw new MainSiteError('Independent bank credit confirmation is required.', 400);
+  }
+
   const endpoint = input.action === 'approve' ? 'approve' : 'reject';
   const res = await fetch(
     `${mainSiteApiBase()}/api/payments/admin/${endpoint}-payment/${input.paymentId}`,
@@ -197,11 +202,20 @@ export async function reviewManualPayment(input: {
       headers: internalHeaders(),
       cache: 'no-store',
       body: JSON.stringify(
-        input.action === 'reject' ? { rejectionReason: input.rejectionReason } : {},
+        input.action === 'reject'
+          ? { rejectionReason: input.rejectionReason }
+          : { verifiedCredit: input.verifiedCredit },
       ),
     },
   );
   const json = await res.json().catch(() => ({}));
+
+  if (res.status === 401) {
+    throw new MainSiteError(
+      'The main-site API rejected Admin OS service authorization. Verify that INTERNAL_PROVISION_SECRET is configured consistently on both services.',
+      502,
+    );
+  }
 
   if (!res.ok || json?.success === false) {
     throw new MainSiteError(

@@ -367,11 +367,10 @@ async function _middleware(request: NextRequest, pathname: string) {
     .eq('id', session.id)
     .then(() => {});
 
-  // Add rate limit + staff identity headers + security headers
-  // IMPORTANT: Pass X-Staff-Id as a REQUEST header so API route handlers can read
-  // it via headers() — response.headers only affects the client, not the handler.
+  // Do not forward client-supplied staff identity; handlers resolve staff from
+  // the HttpOnly session cookie.
   const requestHeaders = new Headers(request.headers);
-  requestHeaders.set('X-Staff-Id', staffId);
+  requestHeaders.delete('x-staff-id');
 
   let csrfToken: string | null = null;
   if (!WRITE_METHODS_CSRF.includes(request.method.toUpperCase())) {
