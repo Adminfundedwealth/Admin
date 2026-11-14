@@ -122,9 +122,46 @@ interface ExistingAccountData {
   status: string;
 }
 
+interface SearchedTerminalAccount {
+  id: string;
+  account_code: string;
+  balance: number;
+  status: string;
+  terminal_traders: { email: string; display_name: string } | null;
+}
+
 function getProvisionRequestError(error: unknown): string {
   const detail = error instanceof Error ? error.message : 'The server connection failed';
-  return `No provisioning confirmation was received (${detail}). Check whether an account was created before retrying; do not use Founder Override to recover this request.`;
+  return `No provisioning confirmation was received (${detail}). Check Account Control before retrying or using Founder Override.`;
+}
+
+async function findExistingTerminalAccount(email: string): Promise<ExistingAccountData | null> {
+  try {
+    const params = new URLSearchParams({ search: email, limit: '20' });
+    const response = await apiFetch(`/api/founder/terminal-accounts?${params.toString()}`);
+    if (!response.ok) return null;
+
+    const body: { accounts?: SearchedTerminalAccount[] } = await response.json();
+    const account = body.accounts?.find(
+      (item) => item.terminal_traders?.email.toLowerCase() === email.toLowerCase(),
+    );
+    if (!account) return null;
+
+    return {
+      user_id: '',
+      user_email: email,
+      user_name: account.terminal_traders?.display_name || email,
+      trading_account_id: account.id,
+      terminal_login: account.account_code,
+      terminal_email: email,
+      account_size: account.balance,
+      challenge_type: 'Review product in Account Control',
+      status: account.status,
+    };
+  } catch (error) {
+    console.error('[EmergencyProvision] Account recovery lookup failed:', error);
+    return null;
+  }
 }
 
 export default function EmergencyManualProvisionPage() {
@@ -217,7 +254,13 @@ export default function EmergencyManualProvisionPage() {
       }
       setResult(json.data);
     } catch (err) {
-      setError(getProvisionRequestError(err));
+      const existing = await findExistingTerminalAccount(email.trim().toLowerCase());
+      if (existing) {
+        setExistingAccount(existing);
+        setError('The request did not return a confirmation, but an account for this email was found. Review it before taking further action.');
+      } else {
+        setError(getProvisionRequestError(err));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -233,10 +276,6 @@ export default function EmergencyManualProvisionPage() {
     if (!email.trim()) { setError('Email is required'); return; }
     if (!selectedProduct) { setError('Challenge type is required'); return; }
     if (!accountSize) { setError('Account size is required'); return; }
-    if (!window.confirm(
-      'Founder Override bypasses duplicate protection and creates an additional account for this email. Continue only if you intentionally want another account.',
-    )) return;
-
     setFounderOverrideSubmitting(true);
     try {
       const res = await apiFetch('/api/founder/emergency-provision', {
@@ -259,7 +298,13 @@ export default function EmergencyManualProvisionPage() {
       }
       setResult(json.data);
     } catch (err) {
-      setError(getProvisionRequestError(err));
+      const existing = await findExistingTerminalAccount(email.trim().toLowerCase());
+      if (existing) {
+        setExistingAccount(existing);
+        setError('The request did not return a confirmation, but an account for this email was found. Review it before taking further action.');
+      } else {
+        setError(getProvisionRequestError(err));
+      }
     } finally {
       setFounderOverrideSubmitting(false);
     }
@@ -533,6 +578,11 @@ export default function EmergencyManualProvisionPage() {
               <AlertTriangle className="h-5 w-5" />
               <h3 className="font-bold text-lg">Existing Terminal Account Detected</h3>
             </div>
+            {error && (
+              <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/30 text-sm text-destructive">
+                <AlertTriangle className="h-4 w-4 shrink-0" /> {error}
+              </div>
+            )}
             <p className="text-sm text-muted-foreground">
               This email already has an active trading account.
             </p>
@@ -691,6 +741,17 @@ export default function EmergencyManualProvisionPage() {
                 className="w-full gap-2" variant="default">
                 <UserPlus className="h-4 w-4" />
                 {submitting ? 'Provisioning...' : `Provision ${currentProduct?.displayName || ''} Account`}
+              </Button>
+
+              <Button
+                type="button"
+                onClick={handleFounderOverride}
+                disabled={founderOverrideSubmitting || !selectedProduct || !accountSize}
+                className="w-full gap-2"
+                variant="outline"
+              >
+                <Shield className="h-4 w-4 text-destructive" />
+                {founderOverrideSubmitting ? 'Overriding...' : 'Founder Override'}
               </Button>
 
             </form>
