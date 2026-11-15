@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireFounderInHandler } from '@/lib/security/require-auth';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { sanitizeSearchInput } from '@/lib/security/sanitize';
 
 /**
  * GET /api/founder/terminal-accounts
@@ -38,10 +39,59 @@ export async function GET(request: NextRequest) {
 
     // Search — filter by trader email or display_name or account_code
     if (search) {
-      // Search account_code directly, plus trader fields via a subquery approach
-      query = query.or(
-        `account_code.ilike.%${search}%,terminal_traders.email.ilike.%${search}%,terminal_traders.display_name.ilike.%${search}%`
-      );
+      const safeSearch = sanitizeSearchInput(search);
+      if (!safeSearch) {
+        return NextResponse.json(
+          { error: { code: 'INVALID_SEARCH', message: 'Search must contain searchable characters' } },
+          { status: 400 }
+        );
+      }
+
+      const isEmail = safeSearch.includes('@');
+      const searchTerm = safeSearch.replace(/[.%_*]/g, '');
+      if (!isEmail && !searchTerm) {
+        return NextResponse.json(
+          { error: { code: 'INVALID_SEARCH', message: 'Search must contain searchable characters' } },
+          { status: 400 }
+        );
+      }
+      const traderSearch = isEmail
+        ? supabase
+            .from('terminal_traders')
+            .select('id')
+            .eq('email', safeSearch.toLowerCase())
+            .limit(1000)
+        : supabase
+            .from('terminal_traders')
+            .select('id')
+            .or(`email.ilike.%${searchTerm}%,display_name.ilike.%${searchTerm}%`)
+            .limit(1000);
+      const { data: traders, error: traderError } = await traderSearch;
+
+      if (traderError) {
+        console.error('[terminal-accounts] Trader search error:', traderError);
+        return NextResponse.json(
+          { error: { code: 'DB_ERROR', message: traderError.message } },
+          { status: 500 }
+        );
+      }
+
+      const traderIds = (traders ?? []).map((trader) => trader.id);
+      if (isEmail) {
+        if (traderIds.length === 0) {
+          return NextResponse.json({
+            accounts: [],
+            pagination: { page, limit, total: 0, pages: 0 },
+          });
+        }
+        query = query.in('trader_id', traderIds);
+      } else {
+        const searchFilters = [`account_code.ilike.%${searchTerm}%`];
+        if (traderIds.length > 0) {
+          searchFilters.push(`trader_id.in.(${traderIds.join(',')})`);
+        }
+        query = query.or(searchFilters.join(','));
+      }
     }
 
     const { data, error, count } = await query
