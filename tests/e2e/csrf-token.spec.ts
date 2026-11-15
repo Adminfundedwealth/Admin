@@ -85,18 +85,55 @@ test('apiFetch refreshes the token and sends it with credentials on mutations', 
   expect(new Headers(requests[1].init?.headers).get('x-csrf-token')).toBe('current-session-token');
 });
 
+test('apiFetch reuses the session-bound CSRF cookie without another rate-limited GET', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: { cookie: '__csrf_token=session-cookie-token' },
+  });
+  globalThis.fetch = async (input, init) => {
+    requests.push({ input, init });
+    return new Response('ok', { status: 200 });
+  };
+
+  try {
+    const response = await apiFetch('/api/founder/emergency-provision', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+
+    expect(response.status).toBe(200);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalDocument) {
+      Object.defineProperty(globalThis, 'document', originalDocument);
+    } else {
+      Reflect.deleteProperty(globalThis, 'document');
+    }
+  }
+
+  expect(requests).toHaveLength(1);
+  expect(requests[0].input).toBe('/api/founder/emergency-provision');
+  expect(new Headers(requests[0].init?.headers).get('x-csrf-token')).toBe('session-cookie-token');
+});
+
 test('apiFetch retries once with a refreshed token after middleware rejects a stale session token', async () => {
   const originalFetch = globalThis.fetch;
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
   const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
-  let tokenRequests = 0;
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: { cookie: '__csrf_token=stale-token' },
+  });
   globalThis.fetch = async (input, init) => {
     requests.push({
       input,
       init: init && { ...init, headers: new Headers(init.headers) },
     });
     if (input === '/api/auth/csrf') {
-      tokenRequests += 1;
-      return Response.json({ token: tokenRequests === 1 ? 'stale-token' : 'refreshed-token' });
+      return Response.json({ token: 'refreshed-token' });
     }
     if (new Headers(init?.headers).get('x-csrf-token') === 'stale-token') {
       return Response.json(
@@ -115,12 +152,17 @@ test('apiFetch retries once with a refreshed token after middleware rejects a st
     });
   } finally {
     globalThis.fetch = originalFetch;
+    if (originalDocument) {
+      Object.defineProperty(globalThis, 'document', originalDocument);
+    } else {
+      Reflect.deleteProperty(globalThis, 'document');
+    }
   }
 
   expect(response.status).toBe(200);
-  expect(requests.filter(({ input }) => input === '/api/auth/csrf')).toHaveLength(2);
-  expect(new Headers(requests[1].init?.headers).get('x-csrf-token')).toBe('stale-token');
-  expect(new Headers(requests[3].init?.headers).get('x-csrf-token')).toBe('refreshed-token');
+  expect(requests.filter(({ input }) => input === '/api/auth/csrf')).toHaveLength(1);
+  expect(new Headers(requests[0].init?.headers).get('x-csrf-token')).toBe('stale-token');
+  expect(new Headers(requests[2].init?.headers).get('x-csrf-token')).toBe('refreshed-token');
 });
 
 test('expired CSRF tokens are rejected', async () => {

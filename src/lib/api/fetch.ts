@@ -29,11 +29,30 @@ export async function readApiJson(response: Response): Promise<Record<string, un
   return parsed as Record<string, unknown>;
 }
 
+function readCsrfCookie(): string | null {
+  if (typeof document === 'undefined') return null;
+  const cookie = document.cookie
+    .split('; ')
+    .find((entry) => entry.startsWith('__csrf_token='));
+  if (!cookie) return null;
+
+  const value = cookie.slice('__csrf_token='.length);
+  try {
+    return decodeURIComponent(value) || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Fetch the token bound to the current session before a mutation. This also
- * repairs stale cookies in other tabs after login or session replacement.
+ * The middleware already places the session-bound CSRF token in a readable
+ * cookie on authenticated responses. Reuse it instead of spending a rate-
+ * limited GET request before every mutation.
  */
-async function fetchCsrfToken(): Promise<string> {
+async function fetchCsrfToken(forceRefresh = false): Promise<string> {
+  const cookieToken = forceRefresh ? null : readCsrfCookie();
+  if (cookieToken) return cookieToken;
+
   const response = await fetch('/api/auth/csrf', {
     credentials: 'include',
     cache: 'no-store',
@@ -87,7 +106,7 @@ export async function apiFetch(
     init.body instanceof ReadableStream
   );
   if (MUTATING.has(method) && canRetry && await isCsrfFailure(response)) {
-    headers.set('x-csrf-token', await fetchCsrfToken());
+    headers.set('x-csrf-token', await fetchCsrfToken(true));
     response = await fetch(input, { ...init, headers, credentials: 'include' });
   }
   return response;
