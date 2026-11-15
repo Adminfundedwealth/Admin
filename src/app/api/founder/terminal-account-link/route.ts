@@ -50,16 +50,21 @@ async function loadVerifiedSource(accountId: string) {
 
   const { data: provisioning, error: provisioningError } = await supabase
     .from('provisioning_logs')
-    .select('id, status, source, trader_id, trading_account_id, challenge_account_id, order_id')
+    .select('id, status, source, trader_id, trading_account_id, challenge_account_id, order_id, error_message')
     .eq('trading_account_id', account.id)
     .eq('challenge_account_id', challenge.id)
-    .eq('status', 'completed')
     .limit(2);
+  const record = provisioning?.[0];
+  const recoverableRuleBindingFailure = record?.status === 'failed' &&
+    record.source === 'founder_emergency' &&
+    record.error_message === 'Terminal did not confirm an active compatible rule version for this account.';
   if (provisioningError || !provisioning || provisioning.length !== 1 ||
-      provisioning[0].trader_id !== account.trader_id ||
-      provisioning[0].trading_account_id !== account.id ||
-      provisioning[0].challenge_account_id !== challenge.id) {
-    throw Object.assign(new Error('A unique completed provisioning record matching this account was not found.'), { status: 409 });
+      !record ||
+      record.trader_id !== account.trader_id ||
+      record.trading_account_id !== account.id ||
+      record.challenge_account_id !== challenge.id ||
+      (record.status !== 'completed' && !recoverableRuleBindingFailure)) {
+    throw Object.assign(new Error('A unique verified provisioning record matching this account was not found.'), { status: 409 });
   }
 
   const { data: trader, error: traderError } = await supabase
@@ -74,7 +79,7 @@ async function loadVerifiedSource(accountId: string) {
   let customerId = trader?.external_id || null;
   const traderEmail = trader?.email || null;
   let ownerSource: 'terminal_trader' | 'completed_founder_order' = 'terminal_trader';
-  if (provisioning[0].source === 'founder_emergency' && provisioning[0].order_id) {
+  if (record.source === 'founder_emergency' && record.order_id) {
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select('user_id, status, account_size, payment_method')
@@ -156,12 +161,12 @@ async function loadVerifiedSource(accountId: string) {
       expiresAt: challenge.expires_at ?? null,
     },
     provisioning: {
-      id: provisioning[0].id,
-      status: provisioning[0].status,
-      source: provisioning[0].source,
-      traderId: provisioning[0].trader_id,
-      tradingAccountId: provisioning[0].trading_account_id,
-      challengeAccountId: provisioning[0].challenge_account_id,
+      id: record.id,
+      status: record.status,
+      source: record.source,
+      traderId: record.trader_id,
+      tradingAccountId: record.trading_account_id,
+      challengeAccountId: record.challenge_account_id,
     },
     ownerSource,
   };
@@ -202,7 +207,12 @@ export async function POST(request: NextRequest) {
       headers: { 'Content-Type': 'application/json', 'x-sso-api-key': sharedKey },
       body: JSON.stringify({
         mode: body.mode,
-        source,
+        source: source.provisioning.status === 'failed'
+          ? {
+            ...source,
+            provisioning: { ...source.provisioning, status: 'ownership_verified' },
+          }
+          : source,
         ...(body.mode === 'confirm' ? {
           actor: { id: staff.id, email: staff.email },
           confirmation: body.confirmation,
@@ -222,6 +232,51 @@ export async function POST(request: NextRequest) {
         status: source.provisioning.status,
       };
       terminalData.preview.ownerSource = source.ownerSource;
+    }
+
+    if (body.mode === 'confirm') {
+      const result = terminalData.result;
+      const ruleVersion = result?.ruleVersion;
+      if (!result?.accountId || !result.ruleVersionId ||
+          ruleVersion?.id !== result.ruleVersionId ||
+          ruleVersion.status !== 'active' ||
+          !ruleVersion.rules || Object.keys(ruleVersion.rules).length === 0) {
+        return NextResponse.json({
+          error: {
+            code: 'TERMINAL_RULE_BINDING_FAILED',
+            message: 'Terminal did not confirm an active compatible rule version for this account.',
+          },
+        }, { status: 502 });
+      }
+
+      if (source.provisioning.status === 'failed') {
+        const supabase = createAdminClient();
+        const { data: completedLog, error: completionError } = await supabase
+          .from('provisioning_logs')
+          .update({ status: 'completed', completed_at: new Date().toISOString(), error_message: null })
+          .eq('id', source.provisioning.id)
+          .eq('status', 'failed')
+          .select('id, status')
+          .single();
+        if (completionError || completedLog?.status !== 'completed') {
+          const { data: alreadyCompleted, error: verificationError } = await supabase
+            .from('provisioning_logs')
+            .select('id, status, trading_account_id, challenge_account_id')
+            .eq('id', source.provisioning.id)
+            .maybeSingle();
+          if (verificationError || alreadyCompleted?.status !== 'completed' ||
+              alreadyCompleted.trading_account_id !== source.account.id ||
+              alreadyCompleted.challenge_account_id !== source.challenge.id) {
+            console.error('[terminal-account-link] Failed to complete recovered provisioning record', completionError ?? verificationError);
+            return NextResponse.json({
+              error: {
+                code: 'PROVISIONING_RECOVERY_FAILED',
+                message: 'The terminal account was verified, but the existing provisioning record could not be completed.',
+              },
+            }, { status: 500 });
+          }
+        }
+      }
     }
 
     return NextResponse.json(terminalData);
