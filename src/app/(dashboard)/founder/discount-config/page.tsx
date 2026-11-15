@@ -18,9 +18,10 @@ const PLAN_TYPES = [
   { key: '2step', label: '2-Step Evaluation', color: 'text-emerald-400' },
 ] as const;
 
-const STATUS_OPTIONS = ['draft', 'scheduled', 'active', 'disabled', 'expired'] as const;
+const STATUS_OPTIONS = ['draft', 'scheduled', 'active', 'paused', 'expired'] as const;
 type CampaignStatus = typeof STATUS_OPTIONS[number];
 type PlanType = typeof PLAN_TYPES[number]['key'];
+type StoredCampaignStatus = CampaignStatus | 'disabled';
 
 interface CampaignRule {
   planType: PlanType;
@@ -33,8 +34,8 @@ interface Campaign {
   id: string;
   name: string;
   description: string | null;
-  status: CampaignStatus;
-  effective_status: CampaignStatus;
+  status: StoredCampaignStatus;
+  effective_status: StoredCampaignStatus;
   enabled: boolean;
   starts_at: string;
   ends_at: string | null;
@@ -70,6 +71,24 @@ interface CampaignForm {
 interface CampaignResponse {
   data: Campaign[];
   history: CampaignHistory[];
+}
+
+interface PricingPreviewRow {
+  planType: PlanType;
+  accountSize: number;
+  sizeLabel: string;
+  originalPrice: number;
+  beforeDiscountPct: number;
+  beforePrice: number;
+  discountPct: number;
+  finalPrice: number;
+  changed: boolean;
+  calculationValid: boolean;
+  formatted: {
+    originalPrice: string;
+    beforePrice: string;
+    finalPrice: string;
+  };
 }
 
 const blankRules = (): CampaignForm['rules'] => ({
@@ -111,7 +130,7 @@ function formFromCampaign(campaign: Campaign): CampaignForm {
     id: campaign.id,
     name: campaign.name,
     description: campaign.description || '',
-    status: campaign.effective_status,
+    status: campaign.effective_status === 'disabled' ? 'paused' : campaign.effective_status,
     startsAt: utcToDateTimeInput(campaign.starts_at, campaign.timezone),
     endsAt: campaign.ends_at ? utcToDateTimeInput(campaign.ends_at, campaign.timezone) : '',
     timezone: campaign.timezone,
@@ -120,12 +139,87 @@ function formFromCampaign(campaign: Campaign): CampaignForm {
   };
 }
 
-function statusStyle(status: CampaignStatus): string {
+function statusStyle(status: StoredCampaignStatus): string {
   if (status === 'active') return 'bg-green-500/15 text-green-500';
   if (status === 'scheduled') return 'bg-blue-500/15 text-blue-400';
   if (status === 'expired') return 'bg-muted text-muted-foreground';
-  if (status === 'disabled') return 'bg-orange-500/15 text-orange-400';
+  if (status === 'paused' || status === 'disabled') return 'bg-orange-500/15 text-orange-400';
   return 'bg-purple-500/15 text-purple-400';
+}
+
+function getPreviewWarnings(
+  form: CampaignForm,
+  campaigns: Campaign[],
+  selectedId: string | null,
+): string[] {
+  const warnings: string[] = [];
+  let startsAt: string | null = null;
+  let endsAt: string | null = null;
+  let validTimezone = true;
+
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: form.timezone }).format();
+  } catch {
+    warnings.push('Invalid campaign time zone.');
+    validTimezone = false;
+  }
+  if (validTimezone) {
+    startsAt = dateTimeInputToUtc(form.startsAt, form.timezone);
+    endsAt = form.endsAt ? dateTimeInputToUtc(form.endsAt, form.timezone) : null;
+  }
+  if (!startsAt || (form.endsAt && !endsAt)) warnings.push('Invalid campaign date range.');
+  if (startsAt && endsAt && new Date(endsAt).getTime() <= new Date(startsAt).getTime()) {
+    warnings.push('End date/time must be later than start date/time.');
+  }
+  if (endsAt && new Date(endsAt).getTime() <= Date.now()) {
+    warnings.push('Campaign end date/time must be in the future to publish.');
+  }
+  if (form.priority.trim() && !Number.isInteger(Number(form.priority))) {
+    warnings.push('Campaign priority must be a whole number.');
+  }
+
+  const enabledPlans = PLAN_TYPES.filter(({ key }) => form.rules[key].selected);
+  if (enabledPlans.length === 0) warnings.push('Select at least one plan.');
+  const campaignCodes = new Set<string>();
+  for (const { key } of enabledPlans) {
+    const rule = form.rules[key];
+    const discount = Number(rule.discountPct);
+    if (!Number.isInteger(discount) || discount < 1 || discount > 99) {
+      warnings.push(`${key}: discount must be a whole percentage from 1 to 99.`);
+    }
+    const codes = rule.codes.split(/[,\n;]/).map((code) => code.trim().toUpperCase()).filter(Boolean);
+    for (const code of codes) {
+      if (campaignCodes.has(code)) warnings.push(`${code}: coupon code must be unique within the campaign.`);
+      campaignCodes.add(code);
+    }
+    if (codes.some((code) => !/^[A-Z0-9_-]{2,30}$/.test(code))) {
+      warnings.push(`${key}: coupon codes must be 2–30 letters, numbers, underscores, or hyphens.`);
+    }
+    if (codes.length === 0) warnings.push(`${key}: add at least one coupon code.`);
+  }
+
+  if (startsAt) {
+    const newStart = new Date(startsAt).getTime();
+    const newEnd = endsAt ? new Date(endsAt).getTime() : Number.POSITIVE_INFINITY;
+    const selected = new Set(enabledPlans.map(({ key }) => key));
+    const priority = form.priority.trim() ? Number(form.priority) : null;
+    for (const campaign of campaigns) {
+      if (
+        campaign.id === selectedId ||
+        !['active', 'scheduled'].includes(campaign.effective_status) ||
+        campaign.effective_status === 'paused'
+      ) continue;
+      const existingStart = new Date(campaign.starts_at).getTime();
+      const existingEnd = campaign.ends_at ? new Date(campaign.ends_at).getTime() : Number.POSITIVE_INFINITY;
+      if (newStart >= existingEnd || existingStart >= newEnd) continue;
+      const sharesPlan = campaign.rules.some((rule) => rule.enabled && selected.has(rule.planType));
+      if (sharesPlan && (priority === null || campaign.priority === null || priority === campaign.priority)) {
+        warnings.push(`Conflicting active campaign "${campaign.name}": overlapping plans need distinct priorities.`);
+      }
+    }
+  }
+
+  return warnings.filter((warning, index) => warnings.indexOf(warning) === index);
 }
 
 export default function DiscountConfigPage() {
@@ -139,6 +233,9 @@ export default function DiscountConfigPage() {
   const [saved, setSaved] = useState(false);
   const [retryAfterUntil, setRetryAfterUntil] = useState<number | null>(null);
   const [retrySeconds, setRetrySeconds] = useState(0);
+  const [previewRows, setPreviewRows] = useState<PricingPreviewRow[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
   const saveInFlight = useRef(false);
 
   const loadCampaigns = useCallback(async (showLoading = true, forceRefresh = false): Promise<boolean> => {
@@ -194,6 +291,86 @@ export default function DiscountConfigPage() {
     () => history.filter((event) => event.campaign_id === selectedId),
     [history, selectedId],
   );
+  const previewRules = useMemo(() => form
+    ? PLAN_TYPES
+      .filter(({ key }) => form.rules[key].selected)
+      .map(({ key }) => ({ planType: key, discountPct: Number(form.rules[key].discountPct) }))
+    : [], [form]);
+  const previewWarnings = useMemo(
+    () => form ? getPreviewWarnings(form, campaigns, selectedId) : [],
+    [form, campaigns, selectedId],
+  );
+  const missingPricePlans = form
+    ? PLAN_TYPES
+      .filter(({ key }) => form.rules[key].selected && !previewRows.some((row) => row.planType === key))
+      .map(({ key }) => key)
+    : [];
+  const calculationWarning = previewRows.some((row) => !row.calculationValid);
+  const canPublish = Boolean(
+    form &&
+    previewRows.length > 0 &&
+    !previewLoading &&
+    !previewError &&
+    previewWarnings.length === 0 &&
+    missingPricePlans.length === 0 &&
+    !calculationWarning,
+  );
+
+  useEffect(() => {
+    if (!form) {
+      setPreviewRows([]);
+      setPreviewError('');
+      setPreviewLoading(false);
+      return;
+    }
+
+    const hasInvalidInput = previewWarnings.some((warning) => (
+      warning.startsWith('Invalid') ||
+      warning.startsWith('End date') ||
+      warning.includes('discount must') ||
+      warning.includes('duplicate coupon') ||
+      warning.includes('coupon codes must') ||
+      warning.includes('add at least one coupon') ||
+      warning === 'Select at least one plan.'
+    ));
+    if (hasInvalidInput) {
+      setPreviewRows([]);
+      setPreviewError('');
+      setPreviewLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setPreviewLoading(true);
+      setPreviewError('');
+      try {
+        const response = await apiFetch('/api/founder/promo-campaigns/preview', {
+          method: 'POST',
+          body: JSON.stringify({ rules: previewRules }),
+          signal: controller.signal,
+        });
+        const payload = await readApiJson(response);
+        if (!response.ok || !Array.isArray(payload.data)) {
+          const apiError = payload.error as { message?: string } | undefined;
+          throw new Error(apiError?.message || 'Pricing preview is unavailable.');
+        }
+        setPreviewRows(payload.data as PricingPreviewRow[]);
+      } catch (requestError) {
+        if (!controller.signal.aborted) {
+          setPreviewRows([]);
+          setPreviewError(requestError instanceof Error ? requestError.message : 'Pricing preview is unavailable.');
+        }
+      } finally {
+        if (!controller.signal.aborted) setPreviewLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [form, previewRules, previewWarnings]);
 
   function setField<K extends keyof CampaignForm>(field: K, value: CampaignForm[K]) {
     setForm((current) => current ? { ...current, [field]: value } : current);
@@ -252,7 +429,7 @@ export default function DiscountConfigPage() {
     setSaved(false);
   }
 
-  async function saveCampaign(saveAsDraft = false, forceExpired = false) {
+  async function saveCampaign(saveAsDraft = false, forceExpired = false, publish = false) {
     if (!form || saveInFlight.current) return;
     saveInFlight.current = true;
     setSaving(true);
@@ -295,6 +472,8 @@ export default function DiscountConfigPage() {
         ? 'expired'
         : saveAsDraft
           ? 'draft'
+          : publish
+            ? new Date(startsAt).getTime() > Date.now() ? 'scheduled' : 'active'
           : form.status === 'expired'
             ? 'expired'
             : form.status;
@@ -577,10 +756,72 @@ export default function DiscountConfigPage() {
               </div>
             </div>
 
+            <section aria-labelledby="campaign-pricing-preview" className="space-y-3 border-t pt-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 id="campaign-pricing-preview" className="font-semibold">Campaign pricing preview</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Live product catalog prices, calculated by the website pricing service. Current price → proposed price.
+                  </p>
+                </div>
+                {previewLoading && <span className="text-xs text-muted-foreground">Recalculating…</span>}
+              </div>
+              {(previewWarnings.length > 0 || previewError || missingPricePlans.length > 0 || calculationWarning) && (
+                <div role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+                  <p className="font-semibold">Review before publishing</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5">
+                    {previewWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+                    {previewError && <li>{previewError}</li>}
+                    {missingPricePlans.map((planType) => <li key={planType}>{planType}: product prices are missing from the catalog preview.</li>)}
+                    {calculationWarning && <li>The pricing service returned an incorrect price calculation.</li>}
+                  </ul>
+                </div>
+              )}
+              {previewRows.length > 0 ? (
+                <div className="max-h-[28rem] overflow-auto rounded-md border">
+                  <table className="w-full min-w-[720px] text-left text-sm">
+                    <thead className="sticky top-0 bg-muted text-xs text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">Plan</th>
+                        <th className="px-3 py-2 font-medium">Account Size</th>
+                        <th className="px-3 py-2 font-medium">Original Price</th>
+                        <th className="px-3 py-2 font-medium">Current Price</th>
+                        <th className="px-3 py-2 font-medium">Discount %</th>
+                        <th className="px-3 py-2 font-medium">Final Price</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {previewRows.map((row) => (
+                        <tr key={`${row.planType}-${row.accountSize}`} className={row.changed ? 'bg-primary/5' : ''}>
+                          <td className="px-3 py-2 capitalize">{row.planType}</td>
+                          <td className="px-3 py-2">{row.sizeLabel}</td>
+                          <td className="px-3 py-2">{row.formatted.originalPrice}</td>
+                          <td className="px-3 py-2">{row.formatted.beforePrice}</td>
+                          <td className="px-3 py-2">{row.discountPct}%</td>
+                          <td className="px-3 py-2 font-semibold">{row.formatted.finalPrice}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                  {previewLoading ? 'Loading catalog prices…' : 'Enter a valid discount and coupon code to preview campaign prices.'}
+                </p>
+              )}
+            </section>
+
             <div className="flex flex-wrap items-center gap-3 border-t pt-4">
-              <Button onClick={() => void saveCampaign()} disabled={saving} className="gap-2">
+              <Button
+                onClick={() => void saveCampaign()}
+                disabled={saving || (['active', 'scheduled'].includes(form.status) && !canPublish)}
+                className="gap-2"
+              >
                 <Save className="h-4 w-4" />
                 {saving ? 'Saving…' : 'Save Changes'}
+              </Button>
+              <Button onClick={() => void saveCampaign(false, false, true)} disabled={saving || !canPublish}>
+                Publish Changes
               </Button>
               <Button variant="outline" onClick={() => void saveCampaign(true)} disabled={saving}>
                 Save as Draft

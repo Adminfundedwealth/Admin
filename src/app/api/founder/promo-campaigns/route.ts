@@ -10,7 +10,7 @@ const campaignSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().trim().min(1).max(120),
   description: z.string().max(2000).nullable().optional(),
-  status: z.enum(['draft', 'scheduled', 'active', 'expired', 'disabled']),
+  status: z.enum(['draft', 'scheduled', 'active', 'paused', 'expired', 'disabled']),
   startsAt: z.string().datetime({ offset: true }),
   endsAt: z.string().datetime({ offset: true }).nullable(),
   timezone: z.string().min(1).max(100).default('Asia/Kolkata'),
@@ -23,12 +23,22 @@ const campaignSchema = z.object({
 }).superRefine((campaign, context) => {
   const seenRules = new Set<string>();
   const discountsByPlan = new Map<string, number>();
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: campaign.timezone });
+  } catch {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Campaign time zone must be a valid IANA time zone',
+      path: ['timezone'],
+    });
+  }
+
   campaign.rules.forEach((rule, index) => {
-    const key = `${rule.planType}:${rule.code.toUpperCase()}`;
+    const key = rule.code.toUpperCase();
     if (seenRules.has(key)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'A promo code can only be listed once for each plan',
+        message: 'Promo codes must be unique within the campaign',
         path: ['rules', index, 'code'],
       });
     }
@@ -57,7 +67,8 @@ function getEffectiveStatus(
 ): CampaignStatus {
   if (status === 'expired') return 'expired';
   if (status === 'draft') return 'draft';
-  if (!enabled || status === 'disabled') return 'disabled';
+  if (!enabled || status === 'disabled') return 'paused';
+  if (status === 'paused') return 'paused';
   if (endsAt && new Date(endsAt).getTime() <= now) return 'expired';
   if (new Date(startsAt).getTime() > now) return 'scheduled';
   return 'active';
@@ -180,6 +191,16 @@ async function saveCampaign(request: NextRequest, updating: boolean) {
         { status: 400 },
       );
     }
+    if (
+      ['scheduled', 'active'].includes(parsed.data.status) &&
+      parsed.data.endsAt &&
+      new Date(parsed.data.endsAt).getTime() <= Date.now()
+    ) {
+      return NextResponse.json(
+        { error: { code: 'INVALID_SCHEDULE', message: 'An active or scheduled campaign must end in the future' } },
+        { status: 400 },
+      );
+    }
 
     const supabase = createAdminClient();
     const { data: savedId, error } = await supabase.rpc('save_promo_campaign', {
@@ -191,7 +212,7 @@ async function saveCampaign(request: NextRequest, updating: boolean) {
       p_ends_at: parsed.data.endsAt,
       p_timezone: parsed.data.timezone,
       p_priority: parsed.data.priority,
-      p_status: parsed.data.status,
+      p_status: parsed.data.status === 'paused' ? 'disabled' : parsed.data.status,
       p_rules: parsed.data.rules.map((rule) => ({
         ...rule,
         code: rule.code.toUpperCase(),
