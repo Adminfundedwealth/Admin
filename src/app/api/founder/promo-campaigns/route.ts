@@ -17,7 +17,7 @@ const campaignSchema = z.object({
   priority: z.number().int().nullable(),
   rules: z.array(z.object({
     planType: z.enum(PLAN_TYPES),
-    code: z.string().trim().min(2).max(30).regex(/^[A-Z0-9_-]+$/i),
+    code: z.string().transform((v) => v.replace(/\s+/g, '').toUpperCase()).pipe(z.string().min(2).max(30).regex(/^[A-Z0-9_-]+$/)),
     discountPct: z.number().int().min(1).max(99),
   })).min(1),
 }).superRefine((campaign, context) => {

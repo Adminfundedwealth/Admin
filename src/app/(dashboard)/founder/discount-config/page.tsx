@@ -187,7 +187,7 @@ function getPreviewWarnings(
     if (!Number.isInteger(discount) || discount < 1 || discount > 99) {
       warnings.push(`${key}: discount must be a whole percentage from 1 to 99.`);
     }
-    const codes = rule.codes.split(/[,\n;]/).map((code) => code.trim().toUpperCase()).filter(Boolean);
+    const codes = rule.codes.split(/[,\n;]/).map((code) => code.replace(/\s+/g, '').toUpperCase()).filter(Boolean);
     for (const code of codes) {
       if (campaignCodes.has(code)) warnings.push(`${code}: coupon code must be unique within the campaign.`);
       campaignCodes.add(code);
@@ -452,7 +452,7 @@ export default function DiscountConfigPage() {
           const rule = form.rules[key];
           return rule.codes
             .split(/[,\n;]/)
-            .map((code) => code.trim().toUpperCase())
+            .map((code) => code.replace(/\s+/g, '').toUpperCase())
             .filter(Boolean)
             .map((code) => ({
               planType: key,
@@ -731,7 +731,7 @@ export default function DiscountConfigPage() {
                         <Input
                           id={`code-${key}`}
                           value={rule.codes}
-                          onChange={(event) => updatePlan(key, 'codes', event.target.value.toUpperCase())}
+                          onChange={(event) => updatePlan(key, 'codes', event.target.value.replace(/[^A-Za-z0-9_,;\n -]/g, '').toUpperCase())}
                           disabled={saving || !rule.selected}
                           placeholder="Codes separated by commas"
                           className="font-mono uppercase"
